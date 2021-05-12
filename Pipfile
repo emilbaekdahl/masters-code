@@ -1,0 +1,33 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+pandas = "*"
+requests = "*"
+numpy = "*"
+tqdm = "*"
+click = "*"
+networkx = "*"
+sparqlwrapper = "*"
+jupyterlab = "*"
+setuptools = "*"
+cached-property = "*"
+nltk = "*"
+
+[dev-packages]
+ipywidgets = "*"
+jupyterlab-widgets = "*"
+matplotlib = "*"
+rpy2 = "*"
+seaborn = "*"
+jupyterlab-code-formatter = "*"
+black = "*"
+isort = "*"
+
+[requires]
+python_version = "3.8"
+
+[pipenv]
+allow_prereleases = true
