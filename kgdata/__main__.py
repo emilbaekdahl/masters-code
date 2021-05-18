@@ -5,6 +5,15 @@ import kgdata.dataset
 import kgdata.sample
 
 
+def dataset_class_from_string(dataset):
+    if dataset == "fb":
+        return kgdata.dataset.FB15K237Raw
+    elif dataset == "wn":
+        return kgdata.dataset.WN18RR
+
+    raise ValueError(f"dataset '{dataset}' unknown")
+
+
 @click.group()
 def cli():
     pass
@@ -14,12 +23,8 @@ def cli():
 @click.argument("dataset", type=click.Choice(["wn", "fb"]))
 @click.argument("target", type=click.Path(file_okay=False))
 def download(dataset, target):
-    if dataset == "wn":
-        data_class = kgdata.dataset.WN18RR
-    elif dataset == "fb":
-        data_class = kgdata.dataset.FB15K237
-
-    data_class(target).download()
+    dataset_class = dataset_class_from_string(dataset)
+    dataset_class(target).download()
 
 
 @cli.command()
@@ -41,14 +46,15 @@ def paths(souce):
 
 
 @cli.command()
-@click.argument("dataset", type=click.Choice(["fb"]))
+@click.argument("dataset", type=click.Choice(["fb", "wn"]))
 @click.argument("source", type=click.Path(file_okay=False))
 @click.argument("target", type=click.Path(dir_okay=False, writable=True))
 @click.option("--depth", type=(int, int), default=(1, 3))
 @click.option("--max-pairs", type=int)
 def enclosing_sizes(dataset, source, target, depth, max_pairs):
-    if dataset == "fb":
-        data = kgdata.dataset.FB15K237Raw(source)
+    dataset_class = dataset_class_from_string(dataset)
+
+    data = dataset_class(source)
 
     min_depth, max_depth = depth
 

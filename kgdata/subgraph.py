@@ -2,10 +2,11 @@ import collections as cl
 import concurrent.futures
 import functools as ft
 import threading
+import typing as tp
 
 import numpy as np
 import pandas as pd
-import tqdm.autonotebook as tqdm
+import tqdm.auto as tqdm
 
 from . import util
 
@@ -13,10 +14,8 @@ rng = np.random.default_rng()
 
 
 class Extractor:
-    def __init__(self, dataset, use_cache=True):
+    def __init__(self, dataset):
         self.dataset = dataset
-        self.use_cache = use_cache
-        self.index_cache = cl.defaultdict(dict)
 
     @util.cached_property
     def wide_data(self):
@@ -28,24 +27,22 @@ class Extractor:
             id_vars="relation", var_name="role", value_name="entity", ignore_index=False
         )
 
-    def neighbourhood(self, entity, depth=1):
-        if not self.use_cache or depth not in self.index_cache[entity]:
-            idx = self.long_data[self.long_data["entity"] == entity].index
+    def neighbourhood(self, entity: str, **kwargs) -> pd.DataFrame:
+        return self._neighbourhood_rec([entity], **kwargs)
 
-            for _ in range(depth - 1):
-                entities = self.long_data.loc[idx]["entity"]
-                idx = idx.union(
-                    self.long_data[self.long_data["entity"].isin(entities)].index
-                )
+    def _neighbourhood_rec(
+        self, entities: tp.Iterable[str], depth: int = 1
+    ) -> pd.DataFrame:
+        idx = self.long_data[self.long_data["entity"].isin(entities)].index
 
-            idx = idx.unique()
+        if depth > 1:
+            idx = idx.union(
+                self._neighbourhood_rec(
+                    self.long_data.loc[idx]["entity"], depth=depth - 1
+                ).index
+            )
 
-            if self.use_cache:
-                self.index_cache[entity][depth] = idx
-        else:
-            idx = self.index_cache[entity][depth]
-
-        return self.wide_data.loc[idx]
+        return self.wide_data.loc[idx.unique()]
 
     def enclosing(self, head, tail, **kwargs):
         idx = self.neighbourhood(head, **kwargs).index.intersection(

@@ -14,6 +14,7 @@ from . import decompress, download, feature, sparql, subgraph, util
 
 @util.delegate(
     "neighbourhood",
+    "neighbourhood_rec",
     "all_neighbourhoods",
     "enclosing",
     "all_enclosing",
