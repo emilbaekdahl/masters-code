@@ -37,6 +37,25 @@ class Dataset:
     def relations(self):
         return self.data["relation"].unique()
 
+    @util.cached_property
+    def entity_pairs(self):
+        pairs = set(
+            map(
+                frozenset,
+                self.data[["head", "tail"]].drop_duplicates().itertuples(index=False),
+            )
+        )
+
+        return list(map(self.__ensure_pair, pairs))
+
+    def __ensure_pair(self, pair):
+        if len(pair) == 1:
+            (element,) = pair
+
+            return element, element
+
+        return tuple(pair)
+
     def save(self, dest):
         self.data.to_csv(dest)
 
@@ -231,3 +250,47 @@ class WN18RR(Dataset):
             ).to_csv((self.path / file_name).with_suffix(".csv"), index=False)
 
         shutil.rmtree(self.path / "WN18RR")
+
+
+class YAGO3(Dataset):
+    def __init__(self, path, split=None):
+        self.path = path
+        self.split = split
+
+        if not isinstance(self.path, pathlib.Path):
+            self.path = pathlib.Path(self.path)
+
+    @util.cached_property
+    def data(self):
+        if not self.path.exists():
+            self.download()
+
+        if self.split is None:
+            return pd.concat(
+                map(pd.read_csv, self.path.glob("*.csv")), ignore_index=True
+            )
+        else:
+            return pd.read_csv((self.path / self.split).with_suffix(".csv"))
+
+    def download(self):
+        compressed_path = download.download_file(
+            "https://github.com/TimDettmers/ConvE/raw/5feb358eb7dbd1f534978cdc4c20ee0bf919148a/YAGO3-10.tar.gz",
+            self.path,
+        )
+
+        decompressed_path = decompress.decompress_tar(
+            compressed_path, self.path, keep=True
+        )
+
+        for file_name in tqdm.tqdm(
+            ["train.txt", "valid.txt", "test.txt"], desc="Moving files"
+        ):
+            path = self.path / file_name
+
+            pd.read_csv(
+                path,
+                sep="\t",
+                names=["head", "relation", "tail"],
+            ).to_csv(path.with_suffix(".csv"), index=False)
+
+            path.unlink()

@@ -45,6 +45,9 @@ class Extractor:
         return self.wide_data.loc[idx.unique()]
 
     def enclosing(self, head, tail, **kwargs):
+        if head == tail:
+            return self.neighbourhood(head)
+
         idx = self.neighbourhood(head, **kwargs).index.intersection(
             self.neighbourhood(tail, **kwargs).index
         )

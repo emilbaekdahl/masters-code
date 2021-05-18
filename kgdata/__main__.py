@@ -4,12 +4,16 @@ import pandas as pd
 import kgdata.dataset
 import kgdata.sample
 
+dataset_choices = click.Choice(["wn", "fb", "yago"])
+
 
 def dataset_class_from_string(dataset):
     if dataset == "fb":
         return kgdata.dataset.FB15K237Raw
     elif dataset == "wn":
         return kgdata.dataset.WN18RR
+    elif dataset == "yago":
+        return kgdata.dataset.YAGO3
 
     raise ValueError(f"dataset '{dataset}' unknown")
 
@@ -20,7 +24,7 @@ def cli():
 
 
 @cli.command()
-@click.argument("dataset", type=click.Choice(["wn", "fb"]))
+@click.argument("dataset", type=dataset_choices)
 @click.argument("target", type=click.Path(file_okay=False))
 def download(dataset, target):
     dataset_class = dataset_class_from_string(dataset)
@@ -46,7 +50,7 @@ def paths(souce):
 
 
 @cli.command()
-@click.argument("dataset", type=click.Choice(["fb", "wn"]))
+@click.argument("dataset", dataset_choices)
 @click.argument("source", type=click.Path(file_okay=False))
 @click.argument("target", type=click.Path(dir_okay=False, writable=True))
 @click.option("--depth", type=(int, int), default=(1, 3))

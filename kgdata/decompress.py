@@ -1,8 +1,20 @@
 import pathlib
+import tarfile
 import typing as tp
 import zipfile
 
 import tqdm
+
+
+def decompress_tar(path, dest=None, keep=False):
+    with tarfile.open(path, "r:gz") as tar_file:
+        for file in tqdm.tqdm(tar_file.getmembers(), desc="Decompressing"):
+            tar_file.extract(file, path=dest)
+
+    if keep is False:
+        path.unlink()
+
+    return dest
 
 
 def decompress_zip(
