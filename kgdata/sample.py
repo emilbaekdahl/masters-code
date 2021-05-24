@@ -36,7 +36,7 @@ class NegativeSampler:
 
     def generate(self, triples, chunk_size=100):
         with concurrent.futures.ProcessPoolExecutor(
-            os.getenv("SLURM_CPUS_PER_TASK")
+            int(os.getenv("SLURM_CPUS_PER_TASK"))
         ) as pool:
             jobs = pool.map(self, *zip(*triples), chunksize=chunk_size)
             samples = list(tqdm.tqdm(jobs, total=len(triples)))
@@ -77,7 +77,7 @@ class NegativeSampler:
         pos_samples = data.sample(frac=neg_rate, replace=neg_rate > 1)
 
         with concurrent.futures.ProcessPoolExecutor(
-            os.getenv("SLURM_CPUS_PER_TASK")
+            int(os.getenv("SLURM_CPUS_PER_TASK"))
         ) as pool:
             neg_samples = list(
                 tqdm.tqdm(

@@ -1,8 +1,13 @@
-def rel_dists(data, exp=False):
-    rels = (
+import numpy as np
+
+
+def rel_counts(data):
+    return (
         data.melt(id_vars="relation", value_name="entity")
         .value_counts(["entity", "relation"])
         .unstack(fill_value=0)
     )
 
-    return rels
+
+def rel_dists(data):
+    return rel_counts(data).apply(lambda col: col / col.sum())
