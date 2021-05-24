@@ -1,5 +1,6 @@
 import concurrent.futures as cf
 import functools as ft
+import os
 
 import networkx as nx
 import pandas as pd
@@ -32,7 +33,7 @@ def relation_paths(data, head, tail, min_length=1, max_length=3):
 
 
 def all_relation_paths(data, pairs, **kwargs):
-    with cf.ProcessPoolExecutor() as pool:
+    with cf.ProcessPoolExecutor(int(os.getenv("SLURM_CPUS_PER_TASK"))) as pool:
         function = ft.partial(_all_relation_paths_worker, data, **kwargs)
         jobs = pool.map(function, *zip(*pairs))
         paths = list(tqdm.tqdm(jobs, total=len(pairs)))

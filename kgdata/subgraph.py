@@ -3,6 +3,7 @@ import concurrent.futures
 import functools as ft
 import itertools as it
 import multiprocessing as mp
+import os
 import threading
 import typing as tp
 
@@ -130,7 +131,9 @@ class Extractor:
 
         pairs = [tuple(pair) for pair in pairs.itertuples(index=False)]
 
-        with concurrent.futures.ProcessPoolExecutor() as pool:
+        with concurrent.futures.ProcessPoolExecutor(
+            int(os.getenv("SLURM_CPUS_PER_TASK"))
+        ) as pool:
             jobs = pool.map(
                 ft.partial(self._all_enclosing_worker, depth=depth, **kwargs),
                 *zip(*pairs),

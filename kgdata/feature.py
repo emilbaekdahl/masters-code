@@ -10,4 +10,10 @@ def rel_counts(data):
 
 
 def rel_dists(data):
-    return rel_counts(data).apply(lambda col: col / col.sum())
+    return (
+        rel_counts(data)
+        .T.apply(lambda col: col / col.sum())
+        .apply(np.exp)
+        .apply(lambda col: col / col.sum())
+        .T
+    )
