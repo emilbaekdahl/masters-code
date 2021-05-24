@@ -1,4 +1,5 @@
 import concurrent.futures
+import os
 
 import numpy as np
 import pandas as pd
@@ -34,7 +35,9 @@ class NegativeSampler:
         return new_entity, relation, tail
 
     def generate(self, triples, chunk_size=100):
-        with concurrent.futures.ProcessPoolExecutor() as pool:
+        with concurrent.futures.ProcessPoolExecutor(
+            os.getenv("SLURM_CPUS_PER_TASK")
+        ) as pool:
             jobs = pool.map(self, *zip(*triples), chunksize=chunk_size)
             samples = list(tqdm.tqdm(jobs, total=len(triples)))
 
@@ -73,7 +76,9 @@ class NegativeSampler:
 
         pos_samples = data.sample(frac=neg_rate, replace=neg_rate > 1)
 
-        with concurrent.futures.ProcessPoolExecutor() as pool:
+        with concurrent.futures.ProcessPoolExecutor(
+            os.getenv("SLURM_CPUS_PER_TASK")
+        ) as pool:
             neg_samples = list(
                 tqdm.tqdm(
                     pool.map(
