@@ -4,7 +4,7 @@ except ImportError:
     from cached_property import cached_property
 
 
-def delegate(*methods, to):
+def delegate(*methods: str, to_attribute: str):
     """Delegates one or more methods to an attribute of a class.
 
     Parameters
@@ -40,7 +40,7 @@ def delegate(*methods, to):
 
     def define_method(name):
         def temp(self, *args, **kwargs):
-            to_object = getattr(self, to)
+            to_object = getattr(self, to_attribute)
             to_method = getattr(to_object, name)
 
             return to_method(*args, **kwargs)

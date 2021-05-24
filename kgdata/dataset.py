@@ -1,24 +1,25 @@
-import concurrent.futures
 import itertools as it
 import pathlib
 import shutil
-import string
 
 import networkx as nx
 import numpy as np
 import pandas as pd
 import tqdm
 
+import kgdata.kg
+
 from . import decompress, download, feature, sparql, subgraph, util
 
 
 @util.delegate(
     "neighbourhood",
-    "neighbourhood_rec",
     "all_neighbourhoods",
     "enclosing",
     "all_enclosing",
-    to="subgraph_extractor",
+    "neighbourhood_sizes",
+    "enclosing_sizes",
+    to_attribute="subgraph_extractor",
 )
 class Dataset:
     def __init__(self, data):
@@ -29,9 +30,11 @@ class Dataset:
 
     @util.cached_property
     def entities(self):
-        return pd.concat(
-            [self.data["head"], self.data["tail"]], ignore_index=True
-        ).unique()
+        return pd.Series(
+            pd.concat(
+                [self.data["head"], self.data["tail"]], ignore_index=True
+            ).unique()
+        )
 
     @util.cached_property
     def relations(self):
@@ -39,22 +42,22 @@ class Dataset:
 
     @util.cached_property
     def entity_pairs(self):
-        pairs = set(
-            map(
-                frozenset,
-                self.data[["head", "tail"]].drop_duplicates().itertuples(index=False),
-            )
-        )
+        return self.data[["head", "tail"]].drop_duplicates(ignore_index=True)
 
-        return list(map(self.__ensure_pair, pairs))
+    @util.cached_property
+    def unique_entity_pairs(self):
+        sets = set(map(frozenset, self.entity_pairs.itertuples(index=False)))
 
-    def __ensure_pair(self, pair):
-        if len(pair) == 1:
-            (element,) = pair
+        data = pd.DataFrame(sets, columns=["entity_1", "entity_2"])
 
-            return element, element
+        data.loc[data["entity_1"].isna(), "entity_1"] = data[data["entity_1"].isna()][
+            "entity_2"
+        ]
+        data.loc[data["entity_2"].isna(), "entity_2"] = data[data["entity_2"].isna()][
+            "entity_1"
+        ]
 
-        return tuple(pair)
+        return data
 
     def save(self, dest):
         self.data.to_csv(dest)
@@ -72,7 +75,8 @@ class Dataset:
     def rel_dists(self):
         return feature.rel_dists(self.data)
 
-    def to_networkx(self):
+    @util.cached_property
+    def graph(self):
         return nx.MultiDiGraph(
             zip(self.data["head"], self.data["tail"], self.data["relation"])
         )
@@ -114,6 +118,11 @@ class FB15K237Raw(Dataset):
         if not isinstance(self.path, pathlib.Path):
             self.path = pathlib.Path(self.path)
 
+        if self.split is None:
+            self.split = ["train", "valid", "test"]
+        elif isinstance(self.split, str):
+            self.split = [self.split]
+
     @util.cached_property
     def data(self):
         path = self.path / "raw"
@@ -121,10 +130,13 @@ class FB15K237Raw(Dataset):
         if not path.exists():
             self.download()
 
-        if self.split is None:
-            return pd.concat(map(pd.read_csv, path.glob("*.csv")), ignore_index=True)
-        else:
-            return pd.read_csv((path / self.split).with_suffix(".csv"))
+        return pd.concat(
+            map(
+                pd.read_csv,
+                [(path / split).with_suffix(".csv") for split in self.split],
+            ),
+            ignore_index=True,
+        )
 
     def download(self):
         compressed_path = download.download_file(
@@ -169,10 +181,15 @@ class FB15K237(Dataset):
 
     @util.cached_property
     def data(self):
-        return self.raw_dataset.data.assign(
+        data = self.raw_dataset.data.assign(
             head=self.wikidata_labels.loc[self.raw_dataset.data["head"]].values,
             tail=self.wikidata_labels.loc[self.raw_dataset.data["tail"]].values,
         )
+
+        data[data["tail"].isna()] = self.raw_dataset.data[data["tail"].isna()]
+        data[data["head"].isna()] = self.raw_dataset.data[data["head"].isna()]
+
+        return data
 
     @util.cached_property
     def wikidata_labels(self):
@@ -221,17 +238,23 @@ class WN18RR(Dataset):
         if not isinstance(self.path, pathlib.Path):
             self.path = pathlib.Path(self.path)
 
+        if self.split is None:
+            self.split = ["train", "valid", "test"]
+        elif isinstance(self.split, str):
+            self.split = [self.split]
+
     @util.cached_property
     def data(self):
         if not self.path.exists():
             self.download()
 
-        if self.split is None:
-            return pd.concat(
-                map(pd.read_csv, self.path.glob("*.csv")), ignore_index=True
-            )
-        else:
-            return pd.read_csv((self.path / self.split).with_suffix(".csv"))
+        return pd.concat(
+            map(
+                pd.read_csv,
+                [(self.path / split).with_suffix(".csv") for split in self.split],
+            ),
+            ignore_index=True,
+        )
 
     def download(self):
         compressed_path = download.download_file(
@@ -278,9 +301,7 @@ class YAGO3(Dataset):
             self.path,
         )
 
-        decompressed_path = decompress.decompress_tar(
-            compressed_path, self.path, keep=True
-        )
+        decompress.decompress_tar(compressed_path, self.path, keep=True)
 
         for file_name in tqdm.tqdm(
             ["train.txt", "valid.txt", "test.txt"], desc="Moving files"

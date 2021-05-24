@@ -2,7 +2,7 @@ import concurrent.futures
 
 import numpy as np
 import pandas as pd
-import tqdm
+import tqdm.auto as tqdm
 
 from . import util
 
@@ -30,8 +30,15 @@ class NegativeSampler:
 
         if replace_tail:
             return head, relation, new_entity
-        else:
-            return new_entity, relation, tail
+
+        return new_entity, relation, tail
+
+    def generate(self, triples, chunk_size=100):
+        with concurrent.futures.ProcessPoolExecutor() as pool:
+            jobs = pool.map(self, *zip(*triples), chunksize=chunk_size)
+            samples = list(tqdm.tqdm(jobs, total=len(triples)))
+
+        return pd.DataFrame(samples, columns=["head", "relation", "tail"])
 
     @util.cached_property
     def rng(self):
