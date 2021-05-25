@@ -32,8 +32,10 @@ def relation_paths(data, head, tail, min_length=1, max_length=3):
     return rel_paths
 
 
-def all_relation_paths(data, pairs, **kwargs):
-    with cf.ProcessPoolExecutor(int(os.getenv("SLURM_CPUS_PER_TASK"))) as pool:
+def all_relation_paths(data, pairs, max_workers=None, **kwargs):
+    if max_workers is None and "SLURM_CPUS_PER_TASK" in os.environ:
+        max_workers = os.environ["SLURM_CPUS_PER_TASK"]
+    with cf.ProcessPoolExecutor(max_workers) as pool:
         function = ft.partial(_all_relation_paths_worker, data, **kwargs)
         jobs = pool.map(function, *zip(*pairs))
         paths = list(tqdm.tqdm(jobs, total=len(pairs)))

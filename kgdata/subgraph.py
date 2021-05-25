@@ -89,7 +89,6 @@ class Extractor:
             entities = entities.sample(**params)
 
         with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as pool:
-
             worker = ft.partial(self._all_neighbourhoods_worker, depth=depth, **kwargs)
 
             jobs = pool.map(
@@ -113,11 +112,21 @@ class Extractor:
 
         return pd.Series(neighbourhood.index, index=[entity] * len(neighbourhood))
 
+    def all_neighbourhood_sizes(self, depth: int = 1, **kwargs):
+        return (
+            self.all_neighbourhoods(depth=depth, **kwargs)
+            .groupby(level=0)
+            .count()
+            .to_frame("size")
+            .assign(depth=depth, prop=lambda data: data["size"] / len(self.dataset))
+        )
+
     def all_enclosing(
         self,
         depth: int = 1,
         max_pairs: float = None,
         seed: int = None,
+        max_workers: int = None,
         **kwargs,
     ):
         pairs = self.dataset.unique_entity_pairs
@@ -131,9 +140,10 @@ class Extractor:
 
         pairs = [tuple(pair) for pair in pairs.itertuples(index=False)]
 
-        with concurrent.futures.ProcessPoolExecutor(
-            int(os.getenv("SLURM_CPUS_PER_TASK"))
-        ) as pool:
+        if max_workers is None and "SLURM_CPUS_PER_TASK" in os.environ:
+            max_workers = int(os.environ["SLURM_CPUS_PER_TASK"])
+
+        with concurrent.futures.ProcessPoolExecutor(max_workers) as pool:
             jobs = pool.map(
                 ft.partial(self._all_enclosing_worker, depth=depth, **kwargs),
                 *zip(*pairs),
@@ -148,12 +158,26 @@ class Extractor:
                 )
             )
 
-        index, value = zip(*subgraphs)
-
-        return pd.Series(value, index=index)
+        return pd.concat(subgraphs)
 
     def _all_enclosing_worker(self, head, tail, **kwargs):
+        enclosing = self.enclosing(head, tail, **kwargs)
+
+        return pd.Series(
+            enclosing.index,
+            index=pd.MultiIndex.from_tuples([(head, tail)] * len(enclosing)),
+        )
+
         return (head, tail), list(self.enclosing(head, tail, **kwargs).index)
+
+    def all_enclosing_sizes(self, depth: int = 1, **kwargs):
+        return (
+            self.all_enclosing(depth=depth, **kwargs)
+            .groupby(level=[0, 1])
+            .count()
+            .to_frame("size")
+            .assign(depth=depth, prop=lambda data: data["size"] / len(self.dataset))
+        )
 
     def neighbourhood_sizes(self, depths, max_entities=None, seed=None, **kwargs):
         if isinstance(depths, tuple):

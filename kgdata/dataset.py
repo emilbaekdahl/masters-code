@@ -1,5 +1,6 @@
 import itertools as it
 import pathlib
+import re
 import shutil
 
 import networkx as nx
@@ -17,8 +18,10 @@ from . import decompress, download, feature, sparql, subgraph, util
     "all_neighbourhoods",
     "enclosing",
     "all_enclosing",
+    "all_neighbourhood_sizes",
     "neighbourhood_sizes",
     "enclosing_sizes",
+    "all_enclosing_sizes",
     to_attribute="subgraph_extractor",
 )
 class Dataset:
@@ -315,3 +318,56 @@ class YAGO3(Dataset):
             ).to_csv(path.with_suffix(".csv"), index=False)
 
             path.unlink()
+
+
+class OpenBioLink(Dataset):
+    def __init__(self, path, split=None):
+        self.path = path
+        self.split = split
+
+        if not isinstance(self.path, pathlib.Path):
+            self.path = pathlib.Path(self.path)
+
+        if self.split is None:
+            self.split = ["train", "valid", "test"]
+        elif isinstance(self.split, str):
+            self.split = [self.split]
+
+    @util.cached_property
+    def data(self):
+        if not self.path.exists():
+            self.download()
+
+        return pd.concat(
+            map(
+                pd.read_csv,
+                [(self.path / split).with_suffix(".csv") for split in self.split],
+            ),
+            ignore_index=True,
+        )
+
+    def download(self):
+        compressed_path = download.download_file(
+            "https://zenodo.org/record/3834052/files/HQ_DIR.zip", self.path
+        )
+
+        decompress.decompress_zip(compressed_path, self.path, keep=True)
+
+        file_pairs = [
+            ("train", "train"),
+            ("val", "valid"),
+            ("test", "test"),
+            ("negative_train", "train_neg"),
+            ("negative_val", "valid_neg"),
+            ("negative_test", "test_neg"),
+        ]
+
+        for source, target in tqdm.tqdm(file_pairs, desc="Moving files", unit="files"):
+            pd.read_csv(
+                self.path / "HQ_DIR" / "train_test_data" / f"{source}_sample.csv",
+                sep="\t",
+                names=["head", "relation", "tail"],
+                usecols=[0, 1, 2],
+            ).to_csv(self.path / f"{target}.csv")
+
+        shutil.rmtree(self.path / "HQ_DIR")
