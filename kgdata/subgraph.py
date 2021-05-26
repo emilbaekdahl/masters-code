@@ -1,5 +1,5 @@
 import ast
-import concurrent.futures
+import concurrent.futures as cf
 import functools as ft
 import os
 import pathlib as pl
@@ -146,7 +146,9 @@ class Extractor:
             }
             entities = entities.sample(**params)
 
-        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as pool:
+        with cf.ProcessPoolExecutor(max_workers=max_workers) as pool:
+            print(f"Using {pool._max_workers} workers")
+
             worker = ft.partial(self._all_neighbourhoods_worker, depth=depth, **kwargs)
 
             if chunk_size is None:
@@ -204,7 +206,8 @@ class Extractor:
         if max_workers is None and "SLURM_CPUS_PER_TASK" in os.environ:
             max_workers = int(os.environ["SLURM_CPUS_PER_TASK"])
 
-        with concurrent.futures.ProcessPoolExecutor(max_workers) as pool:
+        with cf.ProcessPoolExecutor(max_workers) as pool:
+            print(f"Using {pool._max_workers} workers")
             worker = ft.partial(self._all_enclosing_worker, depth=depth, **kwargs)
 
             if chunk_size is None:
