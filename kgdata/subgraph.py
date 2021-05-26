@@ -150,7 +150,7 @@ class Extractor:
             max_workers = int(os.environ["SLURM_CPUS_PER_TASK"])
 
         with cf.ProcessPoolExecutor(max_workers=max_workers) as pool:
-            print(max_workers, f"Using {pool._max_workers} workers")
+            print(f"Using {pool._max_workers} workers")
 
             worker = ft.partial(self._all_neighbourhoods_worker, depth=depth, **kwargs)
 
@@ -210,7 +210,7 @@ class Extractor:
             max_workers = int(os.environ["SLURM_CPUS_PER_TASK"])
 
         with cf.ProcessPoolExecutor(max_workers) as pool:
-            print(max_workers, f"Using {pool._max_workers} workers")
+            print(f"Using {pool._max_workers} workers")
             worker = ft.partial(self._all_enclosing_worker, depth=depth, **kwargs)
 
             if chunk_size is None:
