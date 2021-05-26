@@ -146,6 +146,9 @@ class Extractor:
             }
             entities = entities.sample(**params)
 
+        if max_workers is None and "SLURM_CPUS_PER_TASK" in os.environ:
+            max_workers = int(os.environ["SLURM_CPUS_PER_TASK"])
+
         with cf.ProcessPoolExecutor(max_workers=max_workers) as pool:
             print(f"Using {pool._max_workers} workers")
 
