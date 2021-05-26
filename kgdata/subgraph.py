@@ -121,6 +121,7 @@ class Extractor:
         seed: int = None,
         max_workers: int = None,
         depth: int = 1,
+        chunk_size: int = None,
         **kwargs,
     ):
         entities = self.dataset.entities
@@ -135,11 +136,10 @@ class Extractor:
         with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as pool:
             worker = ft.partial(self._all_neighbourhoods_worker, depth=depth, **kwargs)
 
-            jobs = pool.map(
-                worker,
-                entities,
-                chunksize=min(100, len(entities) // pool._max_workers),
-            )
+            if chunk_size is None:
+                chunk_size = max(1, len(entities) // pool._max_workers)
+
+            jobs = pool.map(worker, entities, chunksize=chunk_size)
             neighbourhoods = list(
                 tqdm.tqdm(
                     jobs,
@@ -174,6 +174,7 @@ class Extractor:
         max_pairs: float = None,
         seed: int = None,
         max_workers: int = None,
+        chunk_size: int = None,
         **kwargs,
     ):
         pairs = self.dataset.unique_entity_pairs
@@ -191,11 +192,12 @@ class Extractor:
             max_workers = int(os.environ["SLURM_CPUS_PER_TASK"])
 
         with concurrent.futures.ProcessPoolExecutor(max_workers) as pool:
-            jobs = pool.map(
-                ft.partial(self._all_enclosing_worker, depth=depth, **kwargs),
-                *zip(*pairs),
-                chunksize=min(100, len(pairs) // pool._max_workers),
-            )
+            worker = ft.partial(self._all_enclosing_worker, depth=depth, **kwargs)
+
+            if chunk_size is None:
+                chunk_size = max(1, len(pairs) // pool._max_workers)
+
+            jobs = pool.map(worker, *zip(*pairs), chunksize=chunk_size)
             subgraphs = list(
                 tqdm.tqdm(
                     jobs,

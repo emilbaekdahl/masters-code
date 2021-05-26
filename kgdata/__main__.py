@@ -88,6 +88,9 @@ def paths(
     dataset_class = dataset_class_from_string(dataset)
     min_length, max_length = length
 
+    if int(max_pairs) == max_pairs:
+        max_pairs = int(max_pairs)
+
     for split in splits:
         if not (source / f"{split}.csv").exists():
             continue
@@ -125,6 +128,9 @@ def paths(
 def enclosing_sizes(
     dataset, source, target, split, depth, max_pairs, max_workers, stochastic
 ):
+    if int(max_pairs) == max_pairs:
+        max_pairs = int(max_pairs)
+
     dataset_class = dataset_class_from_string(dataset)
     data = dataset_class(source, split=split)
     data.all_enclosing_sizes(
@@ -137,13 +143,16 @@ def enclosing_sizes(
 @click.argument("source", type=click.Path(file_okay=False))
 @click.option("--depth", "-d", type=int, default=1)
 @click.option("--max-entities", type=float)
-@click.option("--max-workers", type=float)
+@click.option("--max-workers", type=int)
 @click.option("--stochastic/--no-stochastic", default=False)
 def neighbourhoods(dataset, source, depth, max_entities, max_workers, stochastic):
     dataset_class = dataset_class_from_string(dataset)
     dataset = dataset_class(source)
 
     target_folder = pl.Path(source) / "neighbourhoods"
+
+    if int(max_entities) == max_entities:
+        max_entities = int(max_entities)
 
     if stochastic:
         target_folder = target_folder / "stochastic"
