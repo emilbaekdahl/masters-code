@@ -135,18 +135,19 @@ def enclosing_sizes(
 @cli.command()
 @click.argument("dataset", type=dataset_choices)
 @click.argument("source", type=click.Path(file_okay=False))
-@click.argument("target", type=click.Path(dir_okay=False, writable=True))
 @click.option("--depth", "-d", type=int, default=1)
 @click.option("--max-entities", type=float)
 @click.option("--max-workers", type=float)
-def neighbourhoods(dataset, source, target, depth, max_entities, max_workers):
+def neighbourhoods(dataset, source, depth, max_entities, max_workers):
     dataset_class = dataset_class_from_string(dataset)
-
     dataset = dataset_class(source)
+
+    target_folder = pl.Path(source) / "neighbourhoods"
+    target_folder.mkdir(exist_ok=True, parents=True)
 
     dataset.all_neighbourhoods(
         depth=depth, max_entities=max_entities, max_workers=max_workers
-    ).groupby(level=0).apply(list).to_csv(target)
+    ).groupby(level=0).apply(list).to_csv(target_folder / f"{depth}.csv")
 
 
 if __name__ == "__main__":

@@ -1,11 +1,8 @@
-import collections as cl
+import ast
 import concurrent.futures
 import functools as ft
-import itertools as it
-import multiprocessing as mp
 import os
-import threading
-import typing as tp
+import pathlib as pl
 
 import networkx as nx
 import numpy as np
@@ -20,7 +17,8 @@ rng = np.random.default_rng()
 class Extractor:
     def __init__(self, dataset):
         self.dataset = dataset
-        self.index_cache = cl.defaultdict(dict)
+        self.cache_path = pl.Path(dataset.path / "neighbourhoods")
+        self.cache = {}
 
     @util.cached_property
     def wide_data(self):
@@ -50,6 +48,24 @@ class Extractor:
             )
         )
 
+    def cache_lookup(self, entity, depth):
+        if depth not in self.cache:
+            path = self.cache_path / f"{depth}.csv"
+
+            if path.exists():
+                self.cache[depth] = pd.read_csv(
+                    path,
+                    index_col=0,
+                    converters={"index": ast.literal_eval},
+                )
+            else:
+                return None
+
+        try:
+            return self.cache[depth]["index"].loc[entity]
+        except KeyError:
+            return None
+
     @ft.lru_cache(maxsize=100_000)
     def stochastic_neighbourhood(self, entity, depth=1) -> pd.DataFrame:
         idx = ft.reduce(
@@ -72,13 +88,18 @@ class Extractor:
 
     @ft.lru_cache(maxsize=100_000)
     def neighbourhood(self, entity: str, depth: int = 1) -> pd.DataFrame:
-        idx = ft.reduce(
-            lambda idx, _: idx.union(
-                self.entity_data[self.index_data[idx].unique()].unique()
-            ),
-            range(depth - 1),
-            pd.Index(self.entity_data[[entity]]),
-        ).unique()
+        cached = self.cache_lookup(entity, depth)
+
+        if cached:
+            idx = pd.Index(cached)
+        else:
+            idx = ft.reduce(
+                lambda idx, _: idx.union(
+                    self.entity_data[self.index_data[idx].unique()].unique()
+                ),
+                range(depth - 1),
+                pd.Index(self.entity_data[[entity]]),
+            ).unique()
 
         return self.wide_data.loc[idx]
 
