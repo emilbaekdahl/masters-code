@@ -132,5 +132,21 @@ def enclosing_sizes(
     ).to_csv(target)
 
 
+@cli.command()
+@click.argument("dataset", type=dataset_choices)
+@click.argument("source", type=click.Path(file_okay=False))
+@click.option("--depth", "-d", type=int, default=1)
+@click.option("--max-entities", type=float)
+@click.option("--max-workers", type=float)
+def neighbourhoods(dataset, source, depth, max_entities, max_workers):
+    dataset_class = dataset_class_from_string(dataset)
+
+    dataset = dataset_class(source)
+
+    dataset.all_neighbourhoods(
+        depth=depth, max_entities=max_entities, max_workers=max_workers
+    ).groupby(level=0).apply(list).to_csv("nei.csv")
+
+
 if __name__ == "__main__":
     cli()
