@@ -80,7 +80,10 @@ def neg_samples(dataset, source, splits, neg_rate, seed, max_workers):
 @click.option("--max-pairs", "-m", type=float)
 @click.option("--seed", type=int, default=1, show_default=True)
 @click.option("--max-workers", type=int)
-def paths(dataset, source, splits, depth, length, max_pairs, seed, max_workers):
+@click.option("--stochastic/--no-stochastic", default=False)
+def paths(
+    dataset, source, splits, depth, length, max_pairs, seed, max_workers, stochastic
+):
     source = pl.Path(source)
     dataset_class = dataset_class_from_string(dataset)
     min_length, max_length = length
@@ -106,6 +109,7 @@ def paths(dataset, source, splits, depth, length, max_pairs, seed, max_workers):
             min_length=min_length,
             max_length=max_length,
             max_workers=max_workers,
+            stochastic=stochastic,
         ).to_csv(source / f"{split}_paths.csv", index=False)
 
 
@@ -117,11 +121,14 @@ def paths(dataset, source, splits, depth, length, max_pairs, seed, max_workers):
 @click.option("--depth", type=int, default=2, show_default=True)
 @click.option("--max-pairs", type=float)
 @click.option("--max-workers", type=int)
-def enclosing_sizes(dataset, source, target, split, depth, max_pairs, max_workers):
+@click.option("--stochastic/--no-stochastic", default=True)
+def enclosing_sizes(
+    dataset, source, target, split, depth, max_pairs, max_workers, stochastic
+):
     dataset_class = dataset_class_from_string(dataset)
     data = dataset_class(source, split=split)
     data.all_enclosing_sizes(
-        depth=depth, max_pairs=max_pairs, max_workers=max_workers
+        depth=depth, max_pairs=max_pairs, max_workers=max_workers, stochastic=stochastic
     ).to_csv(target)
 
 

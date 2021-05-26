@@ -50,23 +50,46 @@ class Extractor:
             )
         )
 
-    def neighbourhood(self, entity: str, depth: int = 1, cache=None) -> pd.DataFrame:
+    @ft.lru_cache(maxsize=100_000)
+    def stochastic_neighbourhood(self, entity, depth=1) -> pd.DataFrame:
+        idx = ft.reduce(
+            self._stochastic_neighbourhood_reducer,
+            range(depth - 1),
+            pd.Index(self.entity_data[[entity]]),
+        ).unique()
+
+        return self.wide_data.loc[idx]
+
+    def _stochastic_neighbourhood_reducer(self, idx, _):
+        triples_per_entity = len(self.dataset) // len(self.dataset.entities)
+
+        entities = self.index_data[idx]
+
+        if len(entities) > triples_per_entity:
+            entities = entities.sample(triples_per_entity)
+
+        return idx.union(self.entity_data[entities.unique()].unique())
+
+    @ft.lru_cache(maxsize=100_000)
+    def neighbourhood(self, entity: str, depth: int = 1) -> pd.DataFrame:
         idx = ft.reduce(
             lambda idx, _: idx.union(
                 self.entity_data[self.index_data[idx].unique()].unique()
             ),
             range(depth - 1),
             pd.Index(self.entity_data[[entity]]),
-        )
+        ).unique()
 
         return self.wide_data.loc[idx]
 
-    def enclosing(self, head, tail, **kwargs):
-        if head == tail:
-            return self.neighbourhood(head)
+    def enclosing(self, head, tail, stochastic=False, **kwargs):
+        function = self.stochastic_neighbourhood if stochastic else self.neighbourhood
 
-        idx = self.neighbourhood(head, **kwargs).index.intersection(
-            self.neighbourhood(tail, **kwargs).index
+        if head == tail:
+            return function(head)
+
+        idx = function(head, **kwargs).index.intersection(
+            function(tail, **kwargs).index
         )
 
         return self.wide_data.loc[idx]
@@ -107,8 +130,11 @@ class Extractor:
 
         return pd.concat(neighbourhoods)
 
-    def _all_neighbourhoods_worker(self, entity, **kwargs):
-        neighbourhood = self.neighbourhood(entity, **kwargs)
+    def _all_neighbourhoods_worker(self, entity, stochastic: bool = False, **kwargs):
+        if stochastic:
+            neighbourhood = self.stochastic_neighbourhood(entity, **kwargs)
+        else:
+            neighbourhood = self.neighbourhood(entity, **kwargs)
 
         return pd.Series(neighbourhood.index, index=[entity] * len(neighbourhood))
 
@@ -165,7 +191,9 @@ class Extractor:
 
         return pd.Series(
             enclosing.index,
-            index=pd.MultiIndex.from_tuples([(head, tail)] * len(enclosing)),
+            index=pd.MultiIndex.from_tuples(
+                [(head, tail)] * len(enclosing), names=("ent_1", "ent_2")
+            ),
         )
 
         return (head, tail), list(self.enclosing(head, tail, **kwargs).index)

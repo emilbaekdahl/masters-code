@@ -8,8 +8,6 @@ import numpy as np
 import pandas as pd
 import tqdm
 
-import kgdata.kg
-
 from . import decompress, download, feature, sparql, subgraph, util
 
 
@@ -22,6 +20,7 @@ from . import decompress, download, feature, sparql, subgraph, util
     "neighbourhood_sizes",
     "enclosing_sizes",
     "all_enclosing_sizes",
+    "stochastic_neighbourhood",
     to_attribute="subgraph_extractor",
 )
 class Dataset:
@@ -42,6 +41,17 @@ class Dataset:
     @util.cached_property
     def relations(self):
         return self.data["relation"].unique()
+
+    @util.cached_property
+    def stats(self):
+        return pd.DataFrame(
+            {
+                "entities": len(self.entities),
+                "relations": len(self.relations),
+                "triples": len(self),
+            },
+            index=[self.__class__.__name__],
+        ).assign(triples_per_entity=lambda stats: stats["triples"] / stats["entities"])
 
     @util.cached_property
     def entity_pairs(self):
@@ -368,6 +378,6 @@ class OpenBioLink(Dataset):
                 sep="\t",
                 names=["head", "relation", "tail"],
                 usecols=[0, 1, 2],
-            ).to_csv(self.path / f"{target}.csv")
+            ).to_csv(self.path / f"{target}.csv", index=False)
 
         shutil.rmtree(self.path / "HQ_DIR")
