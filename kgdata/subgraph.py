@@ -19,6 +19,7 @@ class Extractor:
         self.dataset = dataset
         self.cache_path = pl.Path(dataset.path / "neighbourhoods")
         self.cache = {}
+        self.stochastic_cache = {}
 
     @util.cached_property
     def wide_data(self):
@@ -48,12 +49,19 @@ class Extractor:
             )
         )
 
-    def cache_lookup(self, entity, depth):
-        if depth not in self.cache:
-            path = self.cache_path / f"{depth}.csv"
+    def cache_lookup(self, entity: str, depth: int, stochastic: bool):
+        cache = self.stochastic_cache if stochastic else self.cache
+
+        if depth not in cache:
+            path = self.cache_path
+
+            if stochastic:
+                path = path / "stochastic"
+
+            path = path / f"{depth}.csv"
 
             if path.exists():
-                self.cache[depth] = pd.read_csv(
+                cache[depth] = pd.read_csv(
                     path,
                     index_col=0,
                     converters={"index": ast.literal_eval},
@@ -62,17 +70,22 @@ class Extractor:
                 return None
 
         try:
-            return self.cache[depth]["index"].loc[entity]
+            return cache[depth]["index"].loc[entity]
         except KeyError:
             return None
 
     @ft.lru_cache(maxsize=100_000)
     def stochastic_neighbourhood(self, entity, depth=1) -> pd.DataFrame:
-        idx = ft.reduce(
-            self._stochastic_neighbourhood_reducer,
-            range(depth - 1),
-            pd.Index(self.entity_data[[entity]]),
-        ).unique()
+        cached = self.cache_lookup(entity, depth, True)
+
+        if cached:
+            idx = pd.Index(cached)
+        else:
+            idx = ft.reduce(
+                self._stochastic_neighbourhood_reducer,
+                range(depth - 1),
+                pd.Index(self.entity_data[[entity]]),
+            ).unique()
 
         return self.wide_data.loc[idx]
 
@@ -88,7 +101,7 @@ class Extractor:
 
     @ft.lru_cache(maxsize=100_000)
     def neighbourhood(self, entity: str, depth: int = 1) -> pd.DataFrame:
-        cached = self.cache_lookup(entity, depth)
+        cached = self.cache_lookup(entity, depth, False)
 
         if cached:
             idx = pd.Index(cached)

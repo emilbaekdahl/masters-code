@@ -88,7 +88,7 @@ def paths(
     dataset_class = dataset_class_from_string(dataset)
     min_length, max_length = length
 
-    if int(max_pairs) == max_pairs:
+    if max_pairs and int(max_pairs) == max_pairs:
         max_pairs = int(max_pairs)
 
     for split in splits:
@@ -128,7 +128,7 @@ def paths(
 def enclosing_sizes(
     dataset, source, target, split, depth, max_pairs, max_workers, stochastic
 ):
-    if int(max_pairs) == max_pairs:
+    if max_pairs and int(max_pairs) == max_pairs:
         max_pairs = int(max_pairs)
 
     dataset_class = dataset_class_from_string(dataset)
@@ -151,7 +151,7 @@ def neighbourhoods(dataset, source, depth, max_entities, max_workers, stochastic
 
     target_folder = pl.Path(source) / "neighbourhoods"
 
-    if int(max_entities) == max_entities:
+    if max_entities and int(max_entities) == max_entities:
         max_entities = int(max_entities)
 
     if stochastic:
