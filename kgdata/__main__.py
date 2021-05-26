@@ -138,15 +138,23 @@ def enclosing_sizes(
 @click.option("--depth", "-d", type=int, default=1)
 @click.option("--max-entities", type=float)
 @click.option("--max-workers", type=float)
-def neighbourhoods(dataset, source, depth, max_entities, max_workers):
+@click.option("--stochastic/--no-stochastic", default=False)
+def neighbourhoods(dataset, source, depth, max_entities, max_workers, stochastic):
     dataset_class = dataset_class_from_string(dataset)
     dataset = dataset_class(source)
 
     target_folder = pl.Path(source) / "neighbourhoods"
+
+    if stochastic:
+        target_folder = target_folder / "stochastic"
+
     target_folder.mkdir(exist_ok=True, parents=True)
 
     dataset.all_neighbourhoods(
-        depth=depth, max_entities=max_entities, max_workers=max_workers
+        depth=depth,
+        max_entities=max_entities,
+        max_workers=max_workers,
+        stochastic=stochastic,
     ).groupby(level=0).apply(list).to_csv(target_folder / f"{depth}.csv")
 
 
