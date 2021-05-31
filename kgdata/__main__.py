@@ -145,7 +145,10 @@ def enclosing_sizes(
 @click.option("--max-entities", type=float)
 @click.option("--max-workers", type=int)
 @click.option("--stochastic/--no-stochastic", default=False)
-def neighbourhoods(dataset, source, depth, max_entities, max_workers, stochastic):
+@click.option("--chunk-size", type=int)
+def neighbourhoods(
+    dataset, source, depth, max_entities, max_workers, stochastic, chunk_size
+):
     dataset_class = dataset_class_from_string(dataset)
     dataset = dataset_class(source)
 
@@ -164,7 +167,29 @@ def neighbourhoods(dataset, source, depth, max_entities, max_workers, stochastic
         max_entities=max_entities,
         max_workers=max_workers,
         stochastic=stochastic,
+        chunk_size=chunk_size,
     ).groupby(level=0).apply(list).to_csv(target_folder / f"{depth}.csv")
+
+
+@cli.command()
+@click.argument("dataset", type=dataset_choices)
+@click.argument("source", type=click.Path(file_okay=False))
+@click.option("--depth", "-d", type=int, default=1)
+@click.option("--max-pairs", type=float)
+def nx_paths(dataset, source, depth, max_pairs):
+    dataset_class = dataset_class_from_string(dataset)
+    dataset = dataset_class(source)
+
+    for split in dataset.split:
+        split_dataset = dataset_class(source, split=set([split] + ["train"]))
+
+        rel_seqs = kgdata.path.all_nx_rel_seqs(
+            split_dataset, max_pairs=max_pairs, depth=depth
+        )
+
+        (dataset.path / "rel_seqs").mkdir(exist_ok=True)
+
+        rel_seqs.to_csv(dataset.path / "rel_seqs" / f"{split}_{depth}.csv")
 
 
 if __name__ == "__main__":

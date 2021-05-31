@@ -1,4 +1,6 @@
+import abc
 import itertools as it
+import os
 import pathlib
 import re
 import shutil
@@ -40,7 +42,14 @@ class Dataset:
 
     @util.cached_property
     def relations(self):
-        return self.data["relation"].unique()
+        return pd.Series(self.data["relation"].unique())
+
+    @util.cached_property
+    def rel_to_idx(self):
+        return dict(zip(self.relations, self.relations.index))
+
+    def rel_seq_to_idx(self, rel_seq):
+        return [self.rel_to_idx[rel] for rel in rel_seq]
 
     @util.cached_property
     def stats(self):
@@ -72,15 +81,6 @@ class Dataset:
 
         return data
 
-    def save(self, dest):
-        self.data.to_csv(dest)
-
-    def split(self, **kwargs):
-        return Split.split(self, **kwargs)
-
-    def load_split(self, path):
-        return Split.load(self, path)
-
     @util.cached_property
     def subgraph_extractor(self):
         return subgraph.Extractor(self)
@@ -99,58 +99,54 @@ class Dataset:
         return Dataset(pd.read_csv(path, dtype=str))
 
 
-class Split:
-    def __init__(self, dataset, **partitions):
-        self.dataset = dataset
-        self.partitions = partitions
-
-    def get_partition(self, name):
-        return self.dataset.data.loc[self.partitions[name]]
-
-    @util.cached_property
-    def available_partitions(self):
-        return list(self.partitions.keys())
-
-    @staticmethod
-    def split_idx(idx):
-        train_length = round(len(idx) * 0.8)
-        valid_length = (len(idx) - train_length) // 2
-
-        train = idx[:train_length]
-        valid = idx[train_length : train_length + valid_length]
-        test = idx[train_length + valid_length :]
-
-        return train, valid, test
-
-
-class FB15K237Raw(Dataset):
+class PersistedDataset(Dataset):
     def __init__(self, path, split=None):
         self.path = path
-        self.split = split
 
         if not isinstance(self.path, pathlib.Path):
             self.path = pathlib.Path(self.path)
+
+        self.split = split
 
         if self.split is None:
             self.split = ["train", "valid", "test"]
         elif isinstance(self.split, str):
             self.split = [self.split]
 
+    @abc.abstractmethod
+    def download(self):
+        ...
+
+    def load_split(self, split):
+        return self.__class__(self.path, split=split)
+
+    @util.cached_property
+    def split_file_names(self):
+        return [self.path / f"{split}.csv" for split in self.split]
+
     @util.cached_property
     def data(self):
-        path = self.path / "raw"
-
-        if not path.exists():
+        if not self.path.exists():
             self.download()
 
-        return pd.concat(
-            map(
-                pd.read_csv,
-                [(path / split).with_suffix(".csv") for split in self.split],
-            ),
-            ignore_index=True,
-        )
+        return pd.concat(map(pd.read_csv, self.split_file_names), ignore_index=True)
 
+    def subset(self, size, path, force=False):
+        if not isinstance(path, pathlib.Path):
+            path = pathlib.Path(path)
+
+        if not path.exists() or force:
+            path.mkdir(exist_ok=True, parents=True)
+
+            params = {"n" if size > 1 else "frac": size}
+
+            for file in self.split_file_names:
+                pd.read_csv(file).sample(**params).to_csv(path / file.name, index=False)
+
+        return self.__class__(path, split=self.split)
+
+
+class FB15K237Raw(PersistedDataset):
     def download(self):
         compressed_path = download.download_file(
             "https://download.microsoft.com/download/8/7/0/8700516A-AB3D-4850-B4BB-805C515AECE1/FB15K-237.2.zip",
@@ -162,8 +158,6 @@ class FB15K237Raw(Dataset):
         )
 
         source_dir = self.path / "Release"
-        target_dir = self.path / "raw"
-        target_dir.mkdir(parents=True, exist_ok=True)
 
         for file_name in tqdm.tqdm(
             ["train.txt", "valid.txt", "test.txt"], desc="Moving files", unit="files"
@@ -172,22 +166,12 @@ class FB15K237Raw(Dataset):
                 source_dir / file_name,
                 sep="\t",
                 names=["head", "relation", "tail"],
-            ).to_csv((target_dir / file_name).with_suffix(".csv"), index=False)
+            ).to_csv((self.path / file_name).with_suffix(".csv"), index=False)
 
         shutil.rmtree(source_dir)
 
 
-class FB15K237(Dataset):
-    def __init__(self, path, split=None):
-        self.path = path
-        self.split = split
-
-        if not isinstance(self.path, pathlib.Path):
-            self.path = pathlib.Path(self.path)
-
-    def __len__(self):
-        return len(self.data)
-
+class FB15K237(PersistedDataset):
     @util.cached_property
     def raw_dataset(self):
         return FB15K237Raw(self.path, split=self.split)
@@ -199,8 +183,12 @@ class FB15K237(Dataset):
             tail=self.wikidata_labels.loc[self.raw_dataset.data["tail"]].values,
         )
 
-        data[data["tail"].isna()] = self.raw_dataset.data[data["tail"].isna()]
-        data[data["head"].isna()] = self.raw_dataset.data[data["head"].isna()]
+        data.loc[data["tail"].isna(), "tail"] = self.raw_dataset.data[
+            data["tail"].isna()
+        ]["head"]
+        data.loc[data["head"].isna(), "head"] = self.raw_dataset.data[
+            data["head"].isna()
+        ]["tail"]
 
         return data
 
@@ -243,32 +231,7 @@ class FB15K237(Dataset):
         )
 
 
-class WN18RR(Dataset):
-    def __init__(self, path, split=None):
-        self.path = path
-        self.split = split
-
-        if not isinstance(self.path, pathlib.Path):
-            self.path = pathlib.Path(self.path)
-
-        if self.split is None:
-            self.split = ["train", "valid", "test"]
-        elif isinstance(self.split, str):
-            self.split = [self.split]
-
-    @util.cached_property
-    def data(self):
-        if not self.path.exists():
-            self.download()
-
-        return pd.concat(
-            map(
-                pd.read_csv,
-                [(self.path / split).with_suffix(".csv") for split in self.split],
-            ),
-            ignore_index=True,
-        )
-
+class WN18RR(PersistedDataset):
     def download(self):
         compressed_path = download.download_file(
             "https://data.deepai.org/WN18RR.zip", self.path
@@ -288,26 +251,7 @@ class WN18RR(Dataset):
         shutil.rmtree(self.path / "WN18RR")
 
 
-class YAGO3(Dataset):
-    def __init__(self, path, split=None):
-        self.path = path
-        self.split = split
-
-        if not isinstance(self.path, pathlib.Path):
-            self.path = pathlib.Path(self.path)
-
-    @util.cached_property
-    def data(self):
-        if not self.path.exists():
-            self.download()
-
-        if self.split is None:
-            return pd.concat(
-                map(pd.read_csv, self.path.glob("*.csv")), ignore_index=True
-            )
-        else:
-            return pd.read_csv((self.path / self.split).with_suffix(".csv"))
-
+class YAGO3(PersistedDataset):
     def download(self):
         compressed_path = download.download_file(
             "https://github.com/TimDettmers/ConvE/raw/5feb358eb7dbd1f534978cdc4c20ee0bf919148a/YAGO3-10.tar.gz",
@@ -330,32 +274,7 @@ class YAGO3(Dataset):
             path.unlink()
 
 
-class OpenBioLink(Dataset):
-    def __init__(self, path, split=None):
-        self.path = path
-        self.split = split
-
-        if not isinstance(self.path, pathlib.Path):
-            self.path = pathlib.Path(self.path)
-
-        if self.split is None:
-            self.split = ["train", "valid", "test"]
-        elif isinstance(self.split, str):
-            self.split = [self.split]
-
-    @util.cached_property
-    def data(self):
-        if not self.path.exists():
-            self.download()
-
-        return pd.concat(
-            map(
-                pd.read_csv,
-                [(self.path / split).with_suffix(".csv") for split in self.split],
-            ),
-            ignore_index=True,
-        )
-
+class OpenBioLink(PersistedDataset):
     def download(self):
         compressed_path = download.download_file(
             "https://zenodo.org/record/3834052/files/HQ_DIR.zip", self.path
