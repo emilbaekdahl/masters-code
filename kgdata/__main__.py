@@ -176,15 +176,19 @@ def neighbourhoods(
 @click.argument("source", type=click.Path(file_okay=False))
 @click.option("--depth", "-d", type=int, default=1)
 @click.option("--max-pairs", type=float)
-def nx_paths(dataset, source, depth, max_pairs):
+@click.option("--max-paths", type=int)
+def nx_paths(dataset, source, depth, max_pairs, max_paths):
     dataset_class = dataset_class_from_string(dataset)
     dataset = dataset_class(source)
+
+    if max_pairs and max_pairs == int(max_pairs):
+        max_pairs = int(max_pairs)
 
     for split in dataset.split:
         split_dataset = dataset_class(source, split=set([split] + ["train"]))
 
         rel_seqs = kgdata.path.all_nx_rel_seqs(
-            split_dataset, max_pairs=max_pairs, depth=depth
+            split_dataset, max_pairs=max_pairs, max_paths=max_paths, depth=depth
         )
 
         (dataset.path / "rel_seqs").mkdir(exist_ok=True)

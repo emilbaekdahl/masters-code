@@ -35,7 +35,8 @@ def all_nx_rel_seqs(dataset, max_pairs=None, depth=3, **kwargs):
     pairs = dataset.unique_entity_pairs
 
     if max_pairs:
-        pairs = pairs.sample(frac=max_pairs)
+        params = {"frac" if isinstance(max_pairs, float) else "n": max_pairs}
+        pairs = pairs.sample(**params)
 
     all_rel_seqs = [
         (
