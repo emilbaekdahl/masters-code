@@ -17,6 +17,10 @@ cached-property = "*"
 nltk = "*"
 scikit-learn = "*"
 rpy2 = "*"
+torch = "*"
+pytorch-lightning = "*"
+torchmetrics = "*"
+tensorboard = "*"
 
 [dev-packages]
 ipywidgets = "*"

@@ -10,7 +10,7 @@ def rel_counts(data):
 
 
 def rel_props(data):
-    return rel_counts(data).apply(lambda row: row / row.sum())
+    return rel_counts(data).apply(lambda row: row / row.sum(), axis=1)
 
 
 def rel_dists(data):

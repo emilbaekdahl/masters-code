@@ -100,6 +100,8 @@ class Dataset:
 
 
 class PersistedDataset(Dataset):
+    NAME = None
+
     def __init__(self, path, split=None):
         self.path = path
 
@@ -112,6 +114,10 @@ class PersistedDataset(Dataset):
             self.split = ["train", "valid", "test"]
         elif isinstance(self.split, str):
             self.split = [self.split]
+
+    @util.cached_property
+    def name(self):
+        return self.__class__.NAME or self.__class__.__name__
 
     @abc.abstractmethod
     def download(self):
@@ -147,6 +153,8 @@ class PersistedDataset(Dataset):
 
 
 class FB15K237Raw(PersistedDataset):
+    NAME = "FB15K237"
+
     def download(self):
         compressed_path = download.download_file(
             "https://download.microsoft.com/download/8/7/0/8700516A-AB3D-4850-B4BB-805C515AECE1/FB15K-237.2.zip",
