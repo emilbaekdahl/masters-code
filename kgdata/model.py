@@ -327,7 +327,7 @@ class DataModule(ptl.LightningDataModule):
 
 
 class Model(ptl.LightningModule):
-    def __init__(self, n_rels, emb_dim, pool="avg"):
+    def __init__(self, n_rels, emb_dim, pool="avg", optimizer="sgd"):
         """
         Parameters:
             n_rels: Number of relations in the dataset.
@@ -337,7 +337,7 @@ class Model(ptl.LightningModule):
 
         assert pool in ["avg", "lse", "max"]
 
-        self.save_hyperparameters("n_rels", "emb_dim", "pool")
+        self.save_hyperparameters("n_rels", "emb_dim", "pool", "optimizer")
 
         # (n_rels, emb_dim + 1) +1 to account for padding_idx
         self.rel_emb = nn.Embedding(
@@ -416,7 +416,14 @@ class Model(ptl.LightningModule):
         return agg
 
     def configure_optimizers(self):
-        return optim.SGD(self.parameters(), lr=0.001)
+        if self.hparams.optimizer == "sgd":
+            optim_class = optim.SGD
+        elif self.hparams.optimizer == "adam":
+            optim_class = optim.Adam
+        else:
+            raise ValueError
+
+        return optim_class(self.parameters())
 
     def training_step(self, batch, batch_idx):
         _head, _tail, head_sem, tail_sem, relation, path, label = batch
@@ -497,8 +504,18 @@ class Model(ptl.LightningModule):
         parser = parent_parser.add_argument_group("Model")
         parser.add_argument("--emb_dim", type=int, default=100)
         parser.add_argument("--pooling", type=str, default="avg")
+        parser.add_argument("--optimizer", type=str, default="sgd")
 
         return parent_parser
+
+
+def main(args):
+    data_module = DataModule.from_argparse_args(args)
+    trainer = ptl.Trainer.from_argparse_args(args)
+    model = Model(n_rels=len(data_module.kg.relations), emb_dim=args.emb_dim)
+
+    trainer.fit(model, data_module)
+    trainer.test()
 
 
 if __name__ == "__main__":
@@ -510,9 +527,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    data_module = DataModule.from_argparse_args(args)
-    trainer = ptl.Trainer.from_argparse_args(args)
-    model = Model(n_rels=len(data_module.kg.relations), emb_dim=args.emb_dim)
-
-    trainer.fit(model, data_module)
-    trainer.test()
+    main(args)
