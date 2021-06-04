@@ -107,10 +107,6 @@ class KG:
 
 
 class Dataset(torch.utils.data.Dataset):
-    path: pl.Path
-    split: str
-    neg_rate: float
-
     def __init__(
         self,
         path: tp.Union[str, pl.Path],
@@ -281,16 +277,22 @@ class DataModule(ptl.LightningDataModule):
     def __init__(
         self,
         path: str,
+        neg_rate: float = 1,
+        max_paths: int = None,
+        min_path_length: int = 1,
+        max_path_length: int = 1,
         batch_size: int = 32,
         num_workers: int = 0,
         prefetch_factor: int = 2,
-        **dataset_kwargs,
     ):
         self.path = path
+        self.neg_rate = neg_rate
+        self.max_paths = max_paths
+        self.min_path_length = min_path_length
+        self.max_path_length = max_path_length
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.prefetch_factor = prefetch_factor
-        self.dataset_kwargs = dataset_kwargs
 
         super().__init__()
 
@@ -307,11 +309,16 @@ class DataModule(ptl.LightningDataModule):
     def test_dataloader(self):
         return self._create_dataloader("test")
 
-    def _create_dataloader(
-        self, split: str, **data_loader_kwargs
-    ) -> torch.utils.data.DataLoader:
+    def _create_dataloader(self, split: str) -> torch.utils.data.DataLoader:
         return torch.utils.data.DataLoader(
-            Dataset(self.path, split=split, **self.dataset_kwargs),
+            Dataset(
+                self.path,
+                split=split,
+                neg_rate=self.neg_rate,
+                max_paths=self.max_paths,
+                min_path_length=self.min_path_length,
+                max_path_length=self.max_path_length,
+            ),
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             prefetch_factor=self.prefetch_factor,
@@ -483,11 +490,15 @@ class Model(ptl.LightningModule):
 
         return torch.sigmoid(product)
 
-    @staticmethod
-    def add_argparse_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    @classmethod
+    def add_argparse_args(
+        cls, parent_parser: argparse.ArgumentParser
+    ) -> argparse.ArgumentParser:
+        parser = parent_parser.add_argument_group("Model")
         parser.add_argument("--emb_dim", type=int, default=100)
+        parser.add_argument("--pooling", type=str, default="avg")
 
-        return parser
+        return parent_parser
 
 
 if __name__ == "__main__":
