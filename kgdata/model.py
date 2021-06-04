@@ -423,7 +423,7 @@ class Model(ptl.LightningModule):
         else:
             raise ValueError
 
-        return optim_class(self.parameters())
+        return optim_class(self.parameters(), lr=0.0001)
 
     def training_step(self, batch, batch_idx):
         _head, _tail, head_sem, tail_sem, relation, path, label = batch
