@@ -129,6 +129,13 @@ class Dataset(torch.utils.data.Dataset):
     def default_entity_semantics(self) -> np.array:
         return np.repeat(0, len(self.kg.relations)).astype("float32")
 
+    @util.cached_property
+    def idx_map(self):
+        pos_idx_map = pd.DataFrame({"pos_index": self.pos_data.index, "label": 1})
+        neg_idx_map = pos_idx_map.sample(frac=self.neg_rate).assign(label=0)
+
+        return pd.concat([pos_idx_map, neg_idx_map]).sort_index().reset_index(drop=True)
+
     def __len__(self) -> int:
         return round(len(self.pos_data) * (self.neg_rate + 1))
 
@@ -137,16 +144,14 @@ class Dataset(torch.utils.data.Dataset):
     ) -> tp.Tuple[
         str, str, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor
     ]:
-        pos_idx = idx % len(self.pos_data)
+        pos_idx, label = self.idx_map.iloc[idx]
 
         pos_sample = self.pos_data.iloc[pos_idx]
 
         if pos_idx == idx:
             sample = pos_sample
-            label = 1
         else:
             sample = self._gen_neg_sample(*pos_sample)
-            label = 0
 
         head, relation, tail = sample
 
