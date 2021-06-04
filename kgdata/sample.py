@@ -7,6 +7,53 @@ import tqdm.auto as tqdm
 
 from . import util
 
+rng = np.random.default_rng()
+
+
+def gen_neg_samples(dataset):
+    data = dataset.data.join(_replace_tail_prob(dataset.data), on="relation").assign(
+        replace_tail=lambda data: rng.binomial(1, data["replace_tail_prob"])
+    )
+
+    data[data["replace_tail"] == 1]["tail"] = (
+        data[data["replace_tail"] == 1]
+        .groupby(["head", "relation"], as_index=False)["tail"]
+        .apply(
+            lambda tail: pd.Series(
+                dataset.entities[~dataset.entities.isin(tail)].sample(len(tail)),
+                index=["tail"] * len(tail),
+            )
+        )
+    )
+
+    data[data["replace_tail"] == 0]["head"] = (
+        data[data["replace_tail"] == 0]
+        .groupby(["tail", "relation"], as_index=False)["head"]
+        .apply(
+            lambda head: pd.Series(
+                dataset.entities[~dataset.entities.isin(head)].sample(len(head)),
+                index=["head"] * len(head),
+            )
+        )
+    )
+
+    return data[["head", "relation", "tail"]]
+
+
+def _replace_tail_prob(data):
+    return (
+        data.groupby("relation")
+        .apply(
+            lambda group: pd.Series(
+                {
+                    "tph": group.groupby("head").size().sum() / group["head"].nunique(),
+                    "hpt": group.groupby("tail").size().sum() / group["tail"].nunique(),
+                }
+            )
+        )
+        .agg(lambda data: data["hpt"] / (data["hpt"] + data["tph"]), axis=1)
+    ).rename("replace_tail_prob")
+
 
 class NegativeSampler:
     def __init__(self, data, seed=None):

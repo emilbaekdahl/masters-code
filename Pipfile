@@ -21,6 +21,8 @@ torch = "*"
 pytorch-lightning = "*"
 torchmetrics = "*"
 tensorboard = "*"
+dask = "*"
+line-profiler = "*"
 
 [dev-packages]
 ipywidgets = "*"
