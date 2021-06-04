@@ -223,14 +223,17 @@ class Dataset(torch.utils.data.Dataset):
     ) -> tp.Tuple[str, str, str]:
         replace_tail = rng.binomial(1, self.replace_tail_probs.loc[relation]) == 1
 
-        if replace_tail:
-            invalid_entities = self.kg.head_relation_data[head, relation]
-        else:
-            invalid_entities = self.kg.tail_relation_data[tail, relation]
+        try:
+            if replace_tail:
+                invalid_entities = self.kg.head_relation_data[head, relation]
+            else:
+                invalid_entities = self.kg.tail_relation_data[tail, relation]
 
-        candidate_entities = self.kg.entities.index[
-            ~self.kg.entities.index.isin(invalid_entities)
-        ]
+            candidate_entities = self.kg.entities.index[
+                ~self.kg.entities.index.isin(invalid_entities)
+            ]
+        except KeyError:
+            candidate_entities = self.kg.entities.index
 
         (new_entity,) = rng.choice(candidate_entities, 1)
 
