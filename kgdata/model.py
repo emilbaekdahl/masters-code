@@ -422,9 +422,11 @@ class Model(ptl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         _head, _tail, head_sem, tail_sem, relation, path, label = batch
-        label = label.int()
 
         pred = self(path, relation, head_sem=head_sem, tail_sem=tail_sem)
+        loss = F.binary_cross_entropy(pred, label)
+
+        label = label.int()
 
         # Compute metrics.
         self.val_acc(pred, label)
@@ -440,6 +442,7 @@ class Model(ptl.LightningModule):
         self.log("val_h1", self.val_h1)
         self.log("val_h3", self.val_h3)
         self.log("val_h10", self.val_h10)
+        self.log("val_loss", loss)
 
     def test_step(self, batch, _batch_idx):
         _head, _tail, head_sem, tail_sem, relation, path, label = batch
