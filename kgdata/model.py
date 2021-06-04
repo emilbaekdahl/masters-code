@@ -22,9 +22,28 @@ class KG:
     def __len__(self) -> int:
         return len(self.data)
 
+    def __iter__(self):
+        return self.data.itertuples()
+
     @util.cached_property
-    def data(self) -> pd.DataFrame:
+    def org_data(self) -> pd.DataFrame:
         return pd.read_csv(self.path, dtype=str)
+
+    @util.cached_property
+    def data(self):
+        return self.org_data.assign(
+            head=lambda data: self.entity_to_index.loc[data["head"]].values,
+            relation=lambda data: self.relation_to_index.loc[data["relation"]].values,
+            tail=lambda data: self.entity_to_index.loc[data["tail"]].values,
+        )
+
+    @util.cached_property
+    def head_relation_data(self):
+        return self.data.set_index(["head", "relation"])["tail"]
+
+    @util.cached_property
+    def tail_relation_data(self):
+        return self.data.set_index(["tail", "relation"])["head"]
 
     @util.cached_property
     def graph(self) -> nx.MultiDiGraph:
@@ -34,15 +53,22 @@ class KG:
 
     @util.cached_property
     def entities(self) -> pd.Series:
-        return pd.Series(pd.concat([self.data["head"], self.data["tail"]]).unique())
+        return pd.Series(
+            pd.concat([self.org_data["head"], self.org_data["tail"]]).unique(),
+            name="entity",
+        )
+
+    @util.cached_property
+    def entity_to_index(self):
+        return pd.Series(self.entities.index, index=self.entities).sort_index()
 
     @util.cached_property
     def relations(self) -> pd.Series:
-        return pd.Series(self.data["relation"].unique())
+        return pd.Series(self.org_data["relation"].unique(), name="relation")
 
     @util.cached_property
     def relation_to_index(self):
-        return dict(zip(self.relations, self.relations.index))
+        return pd.Series(self.relations.index, index=self.relations).sort_index()
 
     @ft.lru_cache(maxsize=100_000)
     def get_rel_seqs(
@@ -62,9 +88,7 @@ class KG:
                 if len(path) < min_length:
                     continue
 
-                seq = [
-                    self.relation_to_index[relation] for _head, _tail, relation in path
-                ]
+                seq = [relation for _head, _tail, relation in path]
 
                 if seq not in seqs:
                     seqs.append(seq)
@@ -108,7 +132,7 @@ class Dataset(torch.utils.data.Dataset):
 
     @util.cached_property
     def pos_data(self) -> pd.DataFrame:
-        return pd.read_csv(self.path / f"{self.split}.csv", dtype=str)
+        return KG(self.path / f"{self.split}.csv").data
 
     @util.cached_property
     def replace_tail_probs(self) -> pd.Series:
@@ -170,7 +194,7 @@ class Dataset(torch.utils.data.Dataset):
         tail_sem = torch.from_numpy(tail_sem)
 
         # Relation
-        relation_idx = torch.tensor(self.kg.relation_to_index[relation] + 1)
+        relation = torch.tensor(relation + 1)
 
         # Relation sequences
         rel_seqs = [
@@ -192,7 +216,7 @@ class Dataset(torch.utils.data.Dataset):
         # Label
         label = torch.tensor(label, dtype=torch.float32)
 
-        return head, tail, head_sem, tail_sem, relation_idx, rel_seqs, label
+        return head, tail, head_sem, tail_sem, relation, rel_seqs, label
 
     def _gen_neg_sample(
         self, head: str, relation: str, tail: str
@@ -200,25 +224,20 @@ class Dataset(torch.utils.data.Dataset):
         replace_tail = rng.binomial(1, self.replace_tail_probs.loc[relation]) == 1
 
         if replace_tail:
-            positive_tails = self.kg.data[
-                (self.kg.data["head"] == head) & (self.kg.data["relation"] == relation)
-            ]["tail"]
-            new_tail = (
-                self.kg.entities[~self.kg.entities.isin(positive_tails)]
-                .sample(1)
-                .iloc[0]
-            )
+            invalid_entities = self.kg.head_relation_data[head, relation]
+        else:
+            invalid_entities = self.kg.tail_relation_data[tail, relation]
 
-            return head, relation, new_tail
+        candidate_entities = self.kg.entities.index[
+            ~self.kg.entities.index.isin(invalid_entities)
+        ]
 
-        positive_heads = self.kg.data[
-            (self.kg.data["tail"] == tail) & (self.kg.data["relation"] == relation)
-        ]["head"]
-        new_head = (
-            self.kg.entities[~self.kg.entities.isin(positive_heads)].sample(1).iloc[0]
-        )
+        (new_entity,) = rng.choice(candidate_entities, 1)
 
-        return new_head, relation, tail
+        if replace_tail:
+            return head, relation, new_entity
+
+        return new_entity, relation, tail
 
     @staticmethod
     def collate_fn(batch):
