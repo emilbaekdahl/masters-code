@@ -255,14 +255,12 @@ class DataModule(ptl.LightningDataModule):
         self,
         path: str,
         batch_size: int = 32,
-        shuffle: bool = True,
         num_workers: int = 0,
         prefetch_factor: int = 2,
         **dataset_kwargs,
     ):
         self.path = path
         self.batch_size = batch_size
-        self.shuffle = shuffle
         self.num_workers = num_workers
         self.prefetch_factor = prefetch_factor
         self.dataset_kwargs = dataset_kwargs
@@ -288,7 +286,6 @@ class DataModule(ptl.LightningDataModule):
         return torch.utils.data.DataLoader(
             Dataset(self.path, split=split, **self.dataset_kwargs),
             batch_size=self.batch_size,
-            shuffle=self.shuffle,
             num_workers=self.num_workers,
             prefetch_factor=self.prefetch_factor,
             collate_fn=Dataset.collate_fn,
