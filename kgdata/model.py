@@ -1,3 +1,4 @@
+import argparse
 import functools as ft
 import math
 import pathlib as pl
@@ -13,7 +14,8 @@ import torch.optim as optim
 import torch.utils.data
 import torchmetrics as tm
 
-from . import feature, util
+import feature
+import util
 
 rng = np.random.default_rng()
 
@@ -293,7 +295,7 @@ class DataModule(ptl.LightningDataModule):
         super().__init__()
 
     @util.cached_property
-    def kg(self):
+    def kg(self) -> KG:
         return self.train_dataloader().dataset.kg
 
     def train_dataloader(self):
@@ -480,3 +482,26 @@ class Model(ptl.LightningModule):
         product = torch.matmul(self.comp, stack.unsqueeze(-1)).squeeze(-1)
 
         return torch.sigmoid(product)
+
+    @staticmethod
+    def add_argparse_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+        parser.add_argument("--emb_dim", type=int, default=100)
+
+        return parser
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+
+    parser = ptl.Trainer.add_argparse_args(parser)
+    parser = DataModule.add_argparse_args(parser)
+    parser = Model.add_argparse_args(parser)
+
+    args = parser.parse_args()
+
+    data_module = DataModule.from_argparse_args(args)
+    trainer = ptl.Trainer.from_argparse_args(args)
+    model = Model(n_rels=len(data_module.kg.relations), emb_dim=args.emb_dim)
+
+    trainer.fit(model, data_module)
+    trainer.test()
