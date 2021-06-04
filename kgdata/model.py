@@ -39,11 +39,11 @@ class KG:
 
     @util.cached_property
     def head_relation_data(self):
-        return self.data.set_index(["head", "relation"])["tail"]
+        return self.data.set_index(["head", "relation"])["tail"].sort_index()
 
     @util.cached_property
     def tail_relation_data(self):
-        return self.data.set_index(["tail", "relation"])["head"]
+        return self.data.set_index(["tail", "relation"])["head"].sort_index()
 
     @util.cached_property
     def graph(self) -> nx.MultiDiGraph:
@@ -223,6 +223,7 @@ class Dataset(torch.utils.data.Dataset):
     ) -> tp.Tuple[str, str, str]:
         replace_tail = rng.binomial(1, self.replace_tail_probs.loc[relation]) == 1
 
+        breakpoint()
         try:
             if replace_tail:
                 invalid_entities = self.kg.head_relation_data[head, relation]
