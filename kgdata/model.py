@@ -8,7 +8,10 @@ import numpy as np
 import pandas as pd
 import pytorch_lightning as ptl
 import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
 import torch.utils.data
+import torchmetrics as tm
 
 from . import feature, util
 
@@ -223,7 +226,6 @@ class Dataset(torch.utils.data.Dataset):
     ) -> tp.Tuple[str, str, str]:
         replace_tail = rng.binomial(1, self.replace_tail_probs.loc[relation]) == 1
 
-        breakpoint()
         try:
             if replace_tail:
                 invalid_entities = self.kg.head_relation_data[head, relation]
@@ -313,3 +315,165 @@ class DataModule(ptl.LightningDataModule):
             prefetch_factor=self.prefetch_factor,
             collate_fn=Dataset.collate_fn,
         )
+
+
+class Model(ptl.LightningModule):
+    def __init__(self, n_rels, emb_dim, pool="avg"):
+        """
+        Parameters:
+            n_rels: Number of relations in the dataset.
+            emb_dim: Dimentionality of relation embeddings.
+        """
+        super().__init__()
+
+        assert pool in ["avg", "lse", "max"]
+
+        self.save_hyperparameters("n_rels", "emb_dim", "pool")
+
+        # (n_rels, emb_dim + 1) +1 to account for padding_idx
+        self.rel_emb = nn.Embedding(
+            self.hparams.n_rels + 1, self.hparams.emb_dim, padding_idx=0
+        )
+
+        # (emb_dim, 2 * emb_dim)
+        self.comp = nn.Parameter(
+            torch.rand(self.hparams.emb_dim, 2 * self.hparams.emb_dim)
+        )
+        nn.init.xavier_uniform_(self.comp.data)
+
+        # (emb_dim, 2 * n_rels + emb_dim)
+        self.ent_comp = nn.Parameter(
+            torch.rand(
+                self.hparams.emb_dim, 2 * self.hparams.n_rels + self.hparams.emb_dim
+            )
+        )
+        nn.init.xavier_uniform_(self.ent_comp.data)
+
+        self.val_mrr = tm.RetrievalMRR()
+        self.val_h1 = tm.RetrievalPrecision(k=1)
+        self.val_h3 = tm.RetrievalPrecision(k=3)
+        self.val_h10 = tm.RetrievalPrecision(k=10)
+        self.val_acc = tm.Accuracy()
+
+        self.test_mrr = tm.RetrievalMRR()
+        self.test_h1 = tm.RetrievalPrecision(k=1)
+        self.test_h3 = tm.RetrievalPrecision(k=3)
+        self.test_h10 = tm.RetrievalPrecision(k=10)
+        self.test_acc = tm.Accuracy()
+
+    def forward(self, path, relation, head_sem=None, tail_sem=None):
+        """
+        Parameters:
+            path: (batch_size, n_paths, path_length)
+            relation: (batch_size)
+
+        Return:
+            (batch_size)
+        """
+        n_paths = path.size()[1]
+
+        # (batch_size, n_paths, emb_dim)
+        path_emb = self._encode_emb_path(self.rel_emb(path))
+
+        # (batch_size, emb_dim)
+        rel_emb = self.rel_emb(relation)
+
+        path_emb = torch.cat(
+            [
+                head_sem.unsqueeze(1).repeat_interleave(n_paths, dim=1),
+                path_emb,
+                tail_sem.unsqueeze(1).repeat_interleave(n_paths, dim=1),
+            ],
+            dim=2,
+        )
+        path_emb = torch.matmul(self.ent_comp, path_emb.unsqueeze(-1)).squeeze()
+
+        rel_emb = torch.cat([head_sem, rel_emb, tail_sem], dim=1)
+        rel_emb = torch.matmul(self.ent_comp, rel_emb.unsqueeze(-1)).squeeze()
+
+        # (batch_size, n_paths)
+        similarities = torch.sigmoid(
+            torch.matmul(path_emb, rel_emb.unsqueeze(-1))
+        ).squeeze()
+
+        # (batch_size)
+        if self.hparams.pool == "avg":
+            agg = torch.mean(similarities, dim=1)
+        elif self.hparams.pool == "lse":
+            agg = torch.sigmoid(torch.logsumexp(similarities, dim=1))
+        elif self.hparams.pool == "max":
+            agg, _ = torch.max(similarities, dim=1)
+
+        return agg
+
+    def configure_optimizers(self):
+        return optim.SGD(self.parameters(), lr=0.001)
+
+    def training_step(self, batch, batch_idx):
+        _head, _tail, head_sem, tail_sem, relation, path, label = batch
+
+        pred = self(path, relation, head_sem=head_sem, tail_sem=tail_sem)
+        loss = F.binary_cross_entropy(pred, label)
+
+        # Log
+        self.log("train_loss", loss)
+
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        _head, _tail, head_sem, tail_sem, relation, path, label = batch
+        label = label.int()
+
+        pred = self(path, relation, head_sem=head_sem, tail_sem=tail_sem)
+
+        # Compute metrics.
+        self.val_acc(pred, label)
+        retr_idx = torch.tensor(batch_idx).expand_as(label)
+        self.val_mrr(pred, label, retr_idx)
+        self.val_h1(pred, label, retr_idx)
+        self.val_h3(pred, label, retr_idx)
+        self.val_h10(pred, label, retr_idx)
+
+        # Log
+        self.log("val_acc", self.val_acc)
+        self.log("val_mrr", self.val_mrr)
+        self.log("val_h1", self.val_h1)
+        self.log("val_h3", self.val_h3)
+        self.log("val_h10", self.val_h10)
+
+    def test_step(self, batch, _batch_idx):
+        _head, _tail, head_sem, tail_sem, relation, path, label = batch
+
+        pred = self(path, relation, head_sem=head_sem, tail_sem=tail_sem)
+
+        self.test_acc(pred, label.int())
+
+        self.log("test_acc", self.test_acc)
+
+    def _encode_emb_path(self, path):
+        """
+        Parameters:
+            path: (batch_size, n_paths, path_length, emb_dim)
+
+        Return:
+            (batch_size, n_paths, emb_dim)
+        """
+        # (batch_size, n_paths, path_length - 1, emb_dim), (batch_size, n_paths, 1, emb_dim)
+        head, tail = torch.split(path, [path.shape[2] - 1, 1], dim=2)
+
+        # (batch_size, n_paths, emb_dim)
+        tail = tail.squeeze(2)
+
+        if head.shape[2] == 0:
+            return tail
+
+        # (batch_size, n_paths, emb_dim)
+        head = self._encode_emb_path(head)
+
+        # (batch_size, n_paths, emb_size * 2)
+        stack = torch.cat([head, tail], dim=2)
+
+        # (batch_size, n_paths, emb_dim)
+        product = torch.matmul(self.comp, stack.unsqueeze(-1)).squeeze(-1)
+
+        return torch.sigmoid(product)
