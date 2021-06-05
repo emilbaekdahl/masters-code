@@ -285,6 +285,7 @@ class DataModule(ptl.LightningDataModule):
         batch_size: int = 32,
         num_workers: int = 0,
         prefetch_factor: int = 2,
+        shuffle_train: bool = True,
     ):
         self.path = path
         self.neg_rate = neg_rate
@@ -294,6 +295,7 @@ class DataModule(ptl.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.prefetch_factor = prefetch_factor
+        self.shuffle_train = shuffle_train
 
         super().__init__()
 
@@ -324,7 +326,7 @@ class DataModule(ptl.LightningDataModule):
             num_workers=self.num_workers,
             prefetch_factor=self.prefetch_factor,
             collate_fn=Dataset.collate_fn,
-            shuffle=split == "train",
+            shuffle=self.shuffle_train and split == "train",
         )
 
 
