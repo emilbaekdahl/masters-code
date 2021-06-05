@@ -1,6 +1,5 @@
 import argparse
 import functools as ft
-import math
 import pathlib as pl
 import typing as tp
 
@@ -8,14 +7,14 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 import pytorch_lightning as ptl
+import pytorch_lightning.callbacks
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torch.utils.data
 import torchmetrics as tm
 
-import feature
-import util
+from . import feature, util
 
 rng = np.random.default_rng()
 
@@ -35,7 +34,7 @@ class KG:
         return pd.read_csv(self.path, dtype=str)
 
     @util.cached_property
-    def data(self):
+    def data(self) -> pd.DataFrame:
         return self.org_data.assign(
             head=lambda data: self.entity_to_index.loc[data["head"]].values,
             relation=lambda data: self.relation_to_index.loc[data["relation"]].values,
@@ -43,11 +42,11 @@ class KG:
         )
 
     @util.cached_property
-    def head_relation_data(self):
+    def head_relation_data(self) -> pd.Series:
         return self.data.set_index(["head", "relation"])["tail"].sort_index()
 
     @util.cached_property
-    def tail_relation_data(self):
+    def tail_relation_data(self) -> pd.Series:
         return self.data.set_index(["tail", "relation"])["head"].sort_index()
 
     @util.cached_property
@@ -157,7 +156,9 @@ class Dataset(torch.utils.data.Dataset):
     @util.cached_property
     def idx_map(self):
         pos_idx_map = pd.DataFrame({"pos_index": self.pos_data.index, "label": 1})
-        neg_idx_map = pos_idx_map.sample(frac=self.neg_rate).assign(label=0)
+        neg_idx_map = pos_idx_map.sample(
+            frac=self.neg_rate, replace=self.neg_rate > 1
+        ).assign(label=0)
 
         return pd.concat([pos_idx_map, neg_idx_map]).sort_index().reset_index(drop=True)
 
@@ -222,7 +223,7 @@ class Dataset(torch.utils.data.Dataset):
     def _gen_neg_sample(
         self, head: str, relation: str, tail: str
     ) -> tp.Tuple[str, str, str]:
-        replace_tail = rng.binomial(1, self.replace_tail_probs.loc[relation]) == 1
+        replace_tail = rng.binomial(1, self.replace_tail_probs[relation]) == 1
 
         try:
             if replace_tail:
@@ -280,7 +281,7 @@ class DataModule(ptl.LightningDataModule):
         neg_rate: float = 1,
         max_paths: int = None,
         min_path_length: int = 1,
-        max_path_length: int = 1,
+        max_path_length: int = 3,
         batch_size: int = 32,
         num_workers: int = 0,
         prefetch_factor: int = 2,
@@ -327,7 +328,15 @@ class DataModule(ptl.LightningDataModule):
 
 
 class Model(ptl.LightningModule):
-    def __init__(self, n_rels, emb_dim, pool="avg", optimizer="sgd"):
+    def __init__(
+        self,
+        n_rels: int,
+        emb_dim: int,
+        pool: str = "avg",
+        optimiser: str = "sgd",
+        early_stopping: bool = True,
+        learning_rate: float = 0.0001,
+    ):
         """
         Parameters:
             n_rels: Number of relations in the dataset.
@@ -335,11 +344,15 @@ class Model(ptl.LightningModule):
         """
         super().__init__()
 
-        assert pool in ["avg", "lse", "max"]
+        assert pool in ["avg", "lse", "max"], f"pooling function '{pool}' unknown"
+        assert optimiser in ["sgd", "adam"], f"optimiser '{optimiser}' unknown"
 
-        self.save_hyperparameters("n_rels", "emb_dim", "pool", "optimizer")
+        self.save_hyperparameters(
+            "n_rels", "emb_dim", "pool", "optimiser", "early_stopping", "learning_rate"
+        )
 
-        # (n_rels, emb_dim + 1) +1 to account for padding_idx
+        # (n_rels, emb_dim + 1)
+        # +1 to account for padding_idx
         self.rel_emb = nn.Embedding(
             self.hparams.n_rels + 1, self.hparams.emb_dim, padding_idx=0
         )
@@ -358,17 +371,17 @@ class Model(ptl.LightningModule):
         )
         nn.init.xavier_uniform_(self.ent_comp.data)
 
+        # Validation metrics
         self.val_mrr = tm.RetrievalMRR()
         self.val_h1 = tm.RetrievalPrecision(k=1)
         self.val_h3 = tm.RetrievalPrecision(k=3)
         self.val_h10 = tm.RetrievalPrecision(k=10)
-        self.val_acc = tm.Accuracy()
 
+        # Test metrics
         self.test_mrr = tm.RetrievalMRR()
         self.test_h1 = tm.RetrievalPrecision(k=1)
         self.test_h3 = tm.RetrievalPrecision(k=3)
         self.test_h10 = tm.RetrievalPrecision(k=10)
-        self.test_acc = tm.Accuracy()
 
     def forward(self, path, relation, head_sem=None, tail_sem=None):
         """
@@ -416,16 +429,20 @@ class Model(ptl.LightningModule):
         return agg
 
     def configure_optimizers(self):
-        if self.hparams.optimizer == "sgd":
+        if self.hparams.optimiser == "sgd":
             optim_class = optim.SGD
-        elif self.hparams.optimizer == "adam":
+        elif self.hparams.optimiser == "adam":
             optim_class = optim.Adam
-        else:
-            raise ValueError
 
-        return optim_class(self.parameters(), lr=0.0001)
+        return optim_class(self.parameters(), lr=self.hparams.learning_rate)
 
-    def training_step(self, batch, batch_idx):
+    def configure_callbacks(self) -> tp.List[ptl.callbacks.Callback]:
+        if self.hparams.early_stopping:
+            return [ptl.callbacks.EarlyStopping(monitor="val_loss")]
+
+        return []
+
+    def training_step(self, batch, _batch_idx):
         _head, _tail, head_sem, tail_sem, relation, path, label = batch
 
         pred = self(path, relation, head_sem=head_sem, tail_sem=tail_sem)
@@ -442,32 +459,39 @@ class Model(ptl.LightningModule):
         pred = self(path, relation, head_sem=head_sem, tail_sem=tail_sem)
         loss = F.binary_cross_entropy(pred, label)
 
-        label = label.int()
-
         # Compute metrics.
-        self.val_acc(pred, label)
+        label = label.int()
         retr_idx = torch.tensor(batch_idx).expand_as(label)
+
         self.val_mrr(pred, label, retr_idx)
         self.val_h1(pred, label, retr_idx)
         self.val_h3(pred, label, retr_idx)
         self.val_h10(pred, label, retr_idx)
 
         # Log
-        self.log("val_acc", self.val_acc)
+        self.log("val_loss", loss)
         self.log("val_mrr", self.val_mrr)
         self.log("val_h1", self.val_h1)
         self.log("val_h3", self.val_h3)
         self.log("val_h10", self.val_h10)
-        self.log("val_loss", loss)
 
-    def test_step(self, batch, _batch_idx):
+    def test_step(self, batch, batch_idx):
         _head, _tail, head_sem, tail_sem, relation, path, label = batch
 
         pred = self(path, relation, head_sem=head_sem, tail_sem=tail_sem)
 
-        self.test_acc(pred, label.int())
+        label = label.int()
+        retr_idx = torch.tensor(batch_idx).expand_as(label)
+        self.test_mrr(pred, label, retr_idx)
+        self.test_h1(pred, label, retr_idx)
+        self.test_h3(pred, label, retr_idx)
+        self.test_h10(pred, label, retr_idx)
 
-        self.log("test_acc", self.test_acc)
+        # Log
+        self.log("test_mrr", self.test_mrr)
+        self.log("test_h1", self.test_h1)
+        self.log("test_h3", self.test_h3)
+        self.log("test_h10", self.test_h10)
 
     def _encode_emb_path(self, path):
         """
@@ -501,30 +525,9 @@ class Model(ptl.LightningModule):
     def add_argparse_args(
         cls, parent_parser: argparse.ArgumentParser
     ) -> argparse.ArgumentParser:
-        parser = parent_parser.add_argument_group("Model")
-        parser.add_argument("--emb_dim", type=int, default=100)
-        parser.add_argument("--pooling", type=str, default="avg")
-        parser.add_argument("--optimizer", type=str, default="sgd")
+        group_parser = parent_parser.add_argument_group("Model")
+        group_parser.add_argument("--emb_dim", type=int, default=100)
+        group_parser.add_argument("--pooling", type=str, default="avg")
+        group_parser.add_argument("--optimiser", type=str, default="sgd")
 
         return parent_parser
-
-
-def main(args):
-    data_module = DataModule.from_argparse_args(args)
-    trainer = ptl.Trainer.from_argparse_args(args)
-    model = Model(n_rels=len(data_module.kg.relations), emb_dim=args.emb_dim)
-
-    trainer.fit(model, data_module)
-    trainer.test()
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-
-    parser = ptl.Trainer.add_argparse_args(parser)
-    parser = DataModule.add_argparse_args(parser)
-    parser = Model.add_argparse_args(parser)
-
-    args = parser.parse_args()
-
-    main(args)

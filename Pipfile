@@ -23,6 +23,7 @@ torchmetrics = "*"
 tensorboard = "*"
 dask = "*"
 line-profiler = "*"
+test-tube = "*"
 
 [dev-packages]
 ipywidgets = "*"
