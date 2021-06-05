@@ -324,6 +324,7 @@ class DataModule(ptl.LightningDataModule):
             num_workers=self.num_workers,
             prefetch_factor=self.prefetch_factor,
             collate_fn=Dataset.collate_fn,
+            shuffle=split == "train",
         )
 
 
