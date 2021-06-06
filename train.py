@@ -2,7 +2,6 @@ import argparse
 
 import pytorch_lightning as ptl
 import pytorch_lightning.loggers
-import pytorch_lightning.plugins
 
 from kgdata.model import DataModule, Model
 
@@ -14,7 +13,7 @@ def main(args):
         logger=ptl.loggers.TensorBoardLogger(
             "lightning_logs", name=args.path, default_hp_metric=False
         ),
-        plugins=ptl.plugins.DDPPlugin(find_unused_parameters=False),
+        weights_summary="full"
     )
     model = Model(n_rels=len(data_module.kg.relations), emb_dim=args.emb_dim)
 
