@@ -374,17 +374,15 @@ class Model(ptl.LightningModule):
         )
         nn.init.xavier_uniform_(self.ent_comp.data)
 
-        # Validation metrics
-        self.val_mrr = tm.RetrievalMRR()
-        self.val_h1 = tm.RetrievalPrecision(k=1)
-        self.val_h3 = tm.RetrievalPrecision(k=3)
-        self.val_h10 = tm.RetrievalPrecision(k=10)
-
-        # Test metrics
-        self.test_mrr = tm.RetrievalMRR()
-        self.test_h1 = tm.RetrievalPrecision(k=1)
-        self.test_h3 = tm.RetrievalPrecision(k=3)
-        self.test_h10 = tm.RetrievalPrecision(k=10)
+        # Setup metrics
+        metrics = tm.MetricCollection(
+            {
+                "mrr": tm.RetrievalMRR(),
+                **{f"h@{k}": tm.RetrievalPrecision(k=k) for k in [1, 3, 10]},
+            }
+        )
+        self.val_metrics = metrics.clone(prefix="val_")
+        self.test_metrics = metrics.clone(prefix="test_")
 
     def forward(self, path, relation, head_sem=None, tail_sem=None):
         """
@@ -462,39 +460,24 @@ class Model(ptl.LightningModule):
         pred = self(path, relation, head_sem=head_sem, tail_sem=tail_sem)
         loss = F.binary_cross_entropy(pred, label)
 
-        # Compute metrics.
+        # Compute and log metrics.
         label = label.int()
         retr_idx = torch.tensor(batch_idx).expand_as(label)
+        metrics = self.val_metrics(pred, label, retr_idx)
 
-        self.val_mrr(pred, label, retr_idx)
-        self.val_h1(pred, label, retr_idx)
-        self.val_h3(pred, label, retr_idx)
-        self.val_h10(pred, label, retr_idx)
-
-        # Log
-        self.log("val_loss", loss)
-        self.log("val_mrr", self.val_mrr)
-        self.log("val_h1", self.val_h1)
-        self.log("val_h3", self.val_h3)
-        self.log("val_h10", self.val_h10)
+        self.log_dict({"val_loss": loss, **metrics})
 
     def test_step(self, batch, batch_idx):
         _head, _tail, head_sem, tail_sem, relation, path, label = batch
 
         pred = self(path, relation, head_sem=head_sem, tail_sem=tail_sem)
 
+        # Compute and log metrics.
         label = label.int()
         retr_idx = torch.tensor(batch_idx).expand_as(label)
-        self.test_mrr(pred, label, retr_idx)
-        self.test_h1(pred, label, retr_idx)
-        self.test_h3(pred, label, retr_idx)
-        self.test_h10(pred, label, retr_idx)
+        metrics = self.test_metrics(pred, label, retr_idx)
 
-        # Log
-        self.log("test_mrr", self.test_mrr)
-        self.log("test_h1", self.test_h1)
-        self.log("test_h3", self.test_h3)
-        self.log("test_h10", self.test_h10)
+        self.log_dict(metrics)
 
     def _encode_emb_path(self, path):
         """
