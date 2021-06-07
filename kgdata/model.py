@@ -539,7 +539,12 @@ class Model(ptl.LightningModule):
         if self.hparams.no_early_stopping:
             return []
 
-        return [ptl.callbacks.EarlyStopping(monitor=self.hparams.early_stopping)]
+        return [
+            ptl.callbacks.EarlyStopping(
+                monitor=self.hparams.early_stopping,
+                mode="min" if self.hparams.early_stopping == "val_loss" else "max",
+            )
+        ]
 
     def training_step(self, batch, _batch_idx):
         _head, _tail, head_sem, tail_sem, relation, path, label = batch
