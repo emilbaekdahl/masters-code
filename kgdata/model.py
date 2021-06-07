@@ -539,11 +539,13 @@ class Model(ptl.LightningModule):
     def configure_callbacks(self) -> tp.List[ptl.callbacks.Callback]:
         monitor_mode = "min" if self.hparams.early_stopping == "val_loss" else "max"
 
-        callbacks = [
-            ptl.callbacks.ModelCheckpoint(
-                monitor=self.hparams.early_stopping, mode=monitor_mode
-            )
-        ]
+        callbacks = []
+
+        # callbacks = [
+        #     ptl.callbacks.ModelCheckpoint(
+        #         monitor=self.hparams.early_stopping, mode=monitor_mode
+        #     )
+        # ]
 
         if not self.hparams.no_early_stopping:
             callbacks.append(
