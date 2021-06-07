@@ -387,8 +387,6 @@ class DataModule(ptl.LightningDataModule):
         self.prefetch_factor = prefetch_factor
         self.shuffle_train = shuffle_train
 
-        print(type(shuffle_train), shuffle_train)
-
         super().__init__()
 
     @util.cached_property
@@ -553,8 +551,6 @@ class Model(ptl.LightningModule):
                     monitor=self.hparams.early_stopping, mode=monitor_mode
                 )
             )
-        else:
-            print("no early stopping")
 
         return callbacks
 
