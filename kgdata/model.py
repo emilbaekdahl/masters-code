@@ -508,25 +508,24 @@ class Model(ptl.LightningModule):
             ],
             dim=2,
         )
+        # (batch_size, n_paths, emb_dim)
         path_emb = torch.matmul(self.ent_comp, path_emb.unsqueeze(-1)).squeeze()
 
         rel_emb = torch.cat([head_sem, rel_emb, tail_sem], dim=1)
         rel_emb = torch.matmul(self.ent_comp, rel_emb.unsqueeze(-1)).squeeze()
 
         # (batch_size, n_paths)
-        similarities = torch.sigmoid(
-            torch.matmul(path_emb, rel_emb.unsqueeze(-1))
-        ).squeeze()
+        similarities = torch.matmul(path_emb, rel_emb.unsqueeze(-1)).squeeze()
 
         # (batch_size)
         if self.hparams.pooling == "avg":
             agg = torch.mean(similarities, dim=1)
         elif self.hparams.pooling == "lse":
-            agg = torch.sigmoid(torch.logsumexp(similarities, dim=1))
+            agg = torch.logsumexp(similarities, dim=1)
         elif self.hparams.pooling == "max":
             agg, _ = torch.max(similarities, dim=1)
 
-        return agg
+        return torch.sigmoid(agg)
 
     def configure_optimizers(self):
         if self.hparams.optimiser == "sgd":
