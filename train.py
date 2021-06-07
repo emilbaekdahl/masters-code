@@ -1,4 +1,5 @@
 import argparse
+import os.path
 
 import pytorch_lightning as ptl
 import pytorch_lightning.loggers
@@ -11,7 +12,7 @@ def main(args):
     trainer = ptl.Trainer.from_argparse_args(
         args,
         logger=ptl.loggers.TensorBoardLogger(
-            "lightning_logs", name=args.path, default_hp_metric=False
+            "lightning_logs", name=os.path.basename(args.path)
         ),
         weights_summary="full",
     )
