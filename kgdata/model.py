@@ -147,6 +147,7 @@ class KG:
             self._neighbourhood_idx(tail, **kwargs)
         )
 
+    @ft.lru_cache(maxsize=100_000)
     def get_rel_seqs(
         self,
         head: str,
@@ -386,6 +387,8 @@ class DataModule(ptl.LightningDataModule):
         self.prefetch_factor = prefetch_factor
         self.shuffle_train = shuffle_train
 
+        print(type(shuffle_train), shuffle_train)
+
         super().__init__()
 
     @util.cached_property
@@ -426,7 +429,7 @@ class Model(ptl.LightningModule):
         self,
         n_rels: int,
         emb_dim: int,
-        pool: str = "avg",
+        pooling: str = "avg",
         optimiser: str = "sgd",
         no_early_stopping: bool = False,
         early_stopping: str = "val_loss",
@@ -439,13 +442,13 @@ class Model(ptl.LightningModule):
         """
         super().__init__()
 
-        assert pool in ["avg", "lse", "max"], f"pooling function '{pool}' unknown"
+        assert pooling in ["avg", "lse", "max"], f"pooling function '{pooling}' unknown"
         assert optimiser in ["sgd", "adam"], f"optimiser '{optimiser}' unknown"
 
         self.save_hyperparameters(
             "n_rels",
             "emb_dim",
-            "pool",
+            "pooling",
             "optimiser",
             "no_early_stopping",
             "early_stopping",
@@ -518,11 +521,11 @@ class Model(ptl.LightningModule):
         ).squeeze()
 
         # (batch_size)
-        if self.hparams.pool == "avg":
+        if self.hparams.pooling == "avg":
             agg = torch.mean(similarities, dim=1)
-        elif self.hparams.pool == "lse":
+        elif self.hparams.pooling == "lse":
             agg = torch.sigmoid(torch.logsumexp(similarities, dim=1))
-        elif self.hparams.pool == "max":
+        elif self.hparams.pooling == "max":
             agg, _ = torch.max(similarities, dim=1)
 
         return agg
@@ -536,15 +539,24 @@ class Model(ptl.LightningModule):
         return optim_class(self.parameters(), lr=self.hparams.learning_rate)
 
     def configure_callbacks(self) -> tp.List[ptl.callbacks.Callback]:
-        if self.hparams.no_early_stopping:
-            return []
+        monitor_mode = "min" if self.hparams.early_stopping == "val_loss" else "max"
 
-        return [
-            ptl.callbacks.EarlyStopping(
-                monitor=self.hparams.early_stopping,
-                mode="min" if self.hparams.early_stopping == "val_loss" else "max",
+        callbacks = [
+            ptl.callbacks.ModelCheckpoint(
+                monitor=self.hparams.early_stopping, mode=monitor_mode
             )
         ]
+
+        if not self.hparams.no_early_stopping:
+            callbacks.append(
+                ptl.callbacks.EarlyStopping(
+                    monitor=self.hparams.early_stopping, mode=monitor_mode
+                )
+            )
+        else:
+            print("no early stopping")
+
+        return callbacks
 
     def training_step(self, batch, _batch_idx):
         _head, _tail, head_sem, tail_sem, relation, path, label = batch
@@ -553,7 +565,7 @@ class Model(ptl.LightningModule):
         loss = F.binary_cross_entropy(pred, label)
 
         # Log
-        self.log("train_loss", loss)
+        self.log("train_loss", loss, sync_dist=True)
 
         return loss
 
@@ -566,9 +578,11 @@ class Model(ptl.LightningModule):
         # Compute and log metrics.
         label = label.int()
         retr_idx = torch.tensor(batch_idx).expand_as(label)
+        # retr_idx = batch_idx.clone().detach().expand_as(label)
         metrics = self.val_metrics(pred, label, retr_idx)
 
-        self.log_dict({"val_loss": loss, **metrics})
+        self.log("val_loss", loss, sync_dist=True)
+        self.log_dict(metrics, sync_dist=True)
 
     def test_step(self, batch, batch_idx):
         _head, _tail, head_sem, tail_sem, relation, path, label = batch

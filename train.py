@@ -13,9 +13,16 @@ def main(args):
         logger=ptl.loggers.TensorBoardLogger(
             "lightning_logs", name=args.path, default_hp_metric=False
         ),
-        weights_summary="full"
+        weights_summary="full",
     )
-    model = Model(n_rels=len(data_module.kg.relations), emb_dim=args.emb_dim)
+    model = Model(
+        n_rels=len(data_module.kg.relations),
+        emb_dim=args.emb_dim,
+        pooling=args.pooling,
+        optimiser=args.optimiser,
+        early_stopping=args.early_stopping,
+        no_early_stopping=args.no_early_stopping,
+    )
 
     trainer.fit(model, data_module)
     trainer.test()
