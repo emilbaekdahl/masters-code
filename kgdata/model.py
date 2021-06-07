@@ -614,6 +614,6 @@ class Model(ptl.LightningModule):
         group_parser.add_argument("--pooling", type=str, default="avg")
         group_parser.add_argument("--optimiser", type=str, default="sgd")
         group_parser.add_argument("--early_stopping", type=str, default="val_loss")
-        group_parser.add_argument("--no_early_stopping", type=bool, action="store_true")
+        group_parser.add_argument("--no_early_stopping", action="store_true")
 
         return parent_parser
