@@ -43,16 +43,33 @@ class KG:
 
     @util.cached_property
     def head_relation_data(self) -> pd.Series:
-        return self.data.set_index(["head", "relation"])["tail"].sort_index()
+        return (
+            self.data.reset_index().set_index(["head", "relation"])["tail"].sort_index()
+        )
 
     @util.cached_property
     def tail_relation_data(self) -> pd.Series:
-        return self.data.set_index(["tail", "relation"])["head"].sort_index()
+        return (
+            self.data.reset_index().set_index(["tail", "relation"])["head"].sort_index()
+        )
+
+    @util.cached_property
+    def head_index_data(self) -> pd.DataFrame:
+        return self.data.reset_index().set_index(["head"]).sort_index()
+
+    @util.cached_property
+    def head_index_data_idx(self) -> set:
+        return set(self.head_index_data.index)
 
     @util.cached_property
     def graph(self) -> nx.MultiDiGraph:
         return nx.MultiDiGraph(
-            zip(self.data["head"], self.data["tail"], self.data["relation"])
+            zip(
+                self.data["head"],
+                self.data["tail"],
+                self.data["relation"],
+                [{"index": index} for index in self.data.index],
+            ),
         )
 
     @util.cached_property
@@ -74,7 +91,62 @@ class KG:
     def relation_to_index(self):
         return pd.Series(self.relations.index, index=self.relations).sort_index()
 
+    @util.cached_property
+    def degree(self):
+        return pd.Series(dict(self.graph.degree))
+
+    @util.cached_property
+    def median_degree(self):
+        return round(self.degree.median())
+
+    @util.cached_property
+    def mean_degree(self):
+        return round(self.degree.mean())
+
     @ft.lru_cache(maxsize=100_000)
+    def _neighbourhood_idx(
+        self, entity: str, depth: int = 3, sampling: str = None, sample_size: int = None
+    ) -> set:
+        if entity not in self.head_index_data_idx:
+            return set()
+
+        if sample_size is None and sampling is not None:
+            if sampling == "mean":
+                sample_size = self.mean_degree
+            elif sampling == "median":
+                sample_size = self.median_degree
+            elif sampling is not None:
+                raise ValueError(f"subgraph sampling '{sampling}' is unknown")
+
+        data = self.head_index_data.loc[[entity]]
+
+        if sample_size and len(data) > sample_size:
+            data = data.sample(sample_size)
+
+        idx = set(data["index"])
+
+        for _ in range(depth - 1):
+            tails = data["tail"]
+
+            if len(tails) == 0:
+                break
+
+            data = self.head_index_data.loc[
+                self.head_index_data_idx.intersection(tails)
+            ]
+
+            if sample_size and len(data) > sample_size:
+                data = data.sample(sample_size)
+
+            idx.update(data["index"])
+
+        return idx
+
+    def _enclosing_idx(self, head: str, tail: str, **kwargs):
+        return self._neighbourhood_idx(head, **kwargs).intersection(
+            self._neighbourhood_idx(tail, **kwargs)
+        )
+
     def get_rel_seqs(
         self,
         head: str,
@@ -82,13 +154,25 @@ class KG:
         min_length: int = 1,
         max_length: int = 3,
         max_paths: int = None,
+        subgraph_sampling: str = None,
     ) -> tp.List[np.array]:
         seqs = []
 
+        if subgraph_sampling:
+            idx = self._enclosing_idx(
+                head, tail, depth=max_length, sampling=subgraph_sampling
+            )
+
+            data = self.data.loc[idx]
+
+            graph = self.graph.edge_subgraph(
+                zip(data["head"], data["tail"], data["relation"])
+            )
+        else:
+            graph = self.graph
+
         try:
-            for path in nx.all_simple_edge_paths(
-                self.graph, head, tail, cutoff=max_length
-            ):
+            for path in nx.all_simple_edge_paths(graph, head, tail, cutoff=max_length):
                 if len(path) < min_length:
                     continue
 
@@ -102,7 +186,7 @@ class KG:
         except nx.NodeNotFound:
             pass
 
-        return list(map(np.array, seqs))
+        return [np.array(seq) for seq in seqs]
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -114,6 +198,7 @@ class Dataset(torch.utils.data.Dataset):
         max_paths: int = None,
         min_path_length: int = 1,
         max_path_length: int = 1,
+        subgraph_sampling: str = None,
     ):
         if isinstance(path, str):
             self.path = pl.Path(path)
@@ -125,6 +210,7 @@ class Dataset(torch.utils.data.Dataset):
         self.max_paths = max_paths
         self.min_path_length = min_path_length
         self.max_path_length = max_path_length
+        self.subgraph_sampling = subgraph_sampling
 
     @util.cached_property
     def kg(self) -> KG:
@@ -207,6 +293,7 @@ class Dataset(torch.utils.data.Dataset):
                 min_length=self.min_path_length,
                 max_length=self.max_path_length,
                 max_paths=self.max_paths,
+                subgraph_sampling=self.subgraph_sampling,
             )
         ]
 
@@ -282,6 +369,7 @@ class DataModule(ptl.LightningDataModule):
         max_paths: int = None,
         min_path_length: int = 1,
         max_path_length: int = 3,
+        subgraph_sampling: str = None,
         batch_size: int = 32,
         num_workers: int = 0,
         prefetch_factor: int = 2,
@@ -292,6 +380,7 @@ class DataModule(ptl.LightningDataModule):
         self.max_paths = max_paths
         self.min_path_length = min_path_length
         self.max_path_length = max_path_length
+        self.subgraph_sampling = subgraph_sampling
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.prefetch_factor = prefetch_factor
@@ -321,6 +410,7 @@ class DataModule(ptl.LightningDataModule):
                 max_paths=self.max_paths,
                 min_path_length=self.min_path_length,
                 max_path_length=self.max_path_length,
+                subgraph_sampling=self.subgraph_sampling,
             ),
             batch_size=self.batch_size,
             num_workers=self.num_workers,
@@ -338,7 +428,8 @@ class Model(ptl.LightningModule):
         emb_dim: int,
         pool: str = "avg",
         optimiser: str = "sgd",
-        early_stopping: bool = True,
+        no_early_stopping: bool = False,
+        early_stopping: str = "val_loss",
         learning_rate: float = 0.0001,
     ):
         """
@@ -352,7 +443,13 @@ class Model(ptl.LightningModule):
         assert optimiser in ["sgd", "adam"], f"optimiser '{optimiser}' unknown"
 
         self.save_hyperparameters(
-            "n_rels", "emb_dim", "pool", "optimiser", "early_stopping", "learning_rate"
+            "n_rels",
+            "emb_dim",
+            "pool",
+            "optimiser",
+            "no_early_stopping",
+            "early_stopping",
+            "learning_rate",
         )
 
         # (n_rels, emb_dim + 1)
@@ -439,10 +536,10 @@ class Model(ptl.LightningModule):
         return optim_class(self.parameters(), lr=self.hparams.learning_rate)
 
     def configure_callbacks(self) -> tp.List[ptl.callbacks.Callback]:
-        if self.hparams.early_stopping:
-            return [ptl.callbacks.EarlyStopping(monitor="val_loss")]
+        if self.hparams.no_early_stopping:
+            return []
 
-        return []
+        return [ptl.callbacks.EarlyStopping(monitor=self.hparams.early_stopping)]
 
     def training_step(self, batch, _batch_idx):
         _head, _tail, head_sem, tail_sem, relation, path, label = batch
@@ -516,5 +613,7 @@ class Model(ptl.LightningModule):
         group_parser.add_argument("--emb_dim", type=int, default=100)
         group_parser.add_argument("--pooling", type=str, default="avg")
         group_parser.add_argument("--optimiser", type=str, default="sgd")
+        group_parser.add_argument("--early_stopping", type=str, default="val_loss")
+        group_parser.add_argument("--no_early_stopping", type=bool, action="store_true")
 
         return parent_parser
