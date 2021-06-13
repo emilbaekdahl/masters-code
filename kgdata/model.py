@@ -633,6 +633,6 @@ class Model(ptl.LightningModule):
         group_parser.add_argument("--optimiser", type=str, default="sgd")
         group_parser.add_argument("--early_stopping", type=str, default="val_loss")
         group_parser.add_argument("--no_early_stopping", action="store_true")
-        group_parser.add_argument("--learning_rate", type=int, default=0.0001)
+        group_parser.add_argument("--learning_rate", type=float, default=0.0001)
 
         return parent_parser
