@@ -3,6 +3,10 @@ This repository contains code for my maters's theisis.
 `kgdata/model.py` contains a PyTorch Lightning `Module` and `DataModule` which together encpasulates the entire model.
 
 
+### Dependencies
+The project's dependencies are listed in Pipfile and can be installed using pipenv by running `pipenv install` in the project root. 
+
+
 ### Downloading Data
 The `kgdata` module provides a simple CLI that can help with downloading the FB15K237, WN18RR, YAGO3-10, and OpenBioLink knowledge graphs.
 This is triggere by the command `python -m kgdata download <kg> <folder>`
