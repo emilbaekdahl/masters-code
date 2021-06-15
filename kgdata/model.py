@@ -433,6 +433,7 @@ class Model(ptl.LightningModule):
         early_stopping: str = "val_loss",
         learning_rate: float = 0.0001,
         batch_size: int = None,
+        no_semantics: bool = False,
     ):
         """
         Parameters:
@@ -453,6 +454,7 @@ class Model(ptl.LightningModule):
             "early_stopping",
             "learning_rate",
             "batch_size",
+            "no_semantics",
         )
 
         # (n_rels, emb_dim + 1)
@@ -468,12 +470,13 @@ class Model(ptl.LightningModule):
         nn.init.xavier_uniform_(self.comp.data)
 
         # (emb_dim, 2 * n_rels + emb_dim)
-        self.ent_comp = nn.Parameter(
-            torch.rand(
-                self.hparams.emb_dim, 2 * self.hparams.n_rels + self.hparams.emb_dim
+        if not self.hparams.no_semantics:
+            self.ent_comp = nn.Parameter(
+                torch.rand(
+                    self.hparams.emb_dim, 2 * self.hparams.n_rels + self.hparams.emb_dim
+                )
             )
-        )
-        nn.init.xavier_uniform_(self.ent_comp.data)
+            nn.init.xavier_uniform_(self.ent_comp.data)
 
         # Setup metrics
         metrics = tm.MetricCollection(
@@ -502,19 +505,20 @@ class Model(ptl.LightningModule):
         # (batch_size, emb_dim)
         rel_emb = self.rel_emb(relation)
 
-        path_emb = torch.cat(
-            [
-                head_sem.unsqueeze(1).repeat_interleave(n_paths, dim=1),
-                path_emb,
-                tail_sem.unsqueeze(1).repeat_interleave(n_paths, dim=1),
-            ],
-            dim=2,
-        )
-        # (batch_size, n_paths, emb_dim)
-        path_emb = torch.matmul(self.ent_comp, path_emb.unsqueeze(-1)).squeeze(-1)
+        if not self.hparams.no_semantics:
+            path_emb = torch.cat(
+                [
+                    head_sem.unsqueeze(1).repeat_interleave(n_paths, dim=1),
+                    path_emb,
+                    tail_sem.unsqueeze(1).repeat_interleave(n_paths, dim=1),
+                ],
+                dim=2,
+            )
+            # (batch_size, n_paths, emb_dim)
+            path_emb = torch.matmul(self.ent_comp, path_emb.unsqueeze(-1)).squeeze(-1)
 
-        rel_emb = torch.cat([head_sem, rel_emb, tail_sem], dim=1)
-        rel_emb = torch.matmul(self.ent_comp, rel_emb.unsqueeze(-1)).squeeze(-1)
+            rel_emb = torch.cat([head_sem, rel_emb, tail_sem], dim=1)
+            rel_emb = torch.matmul(self.ent_comp, rel_emb.unsqueeze(-1)).squeeze(-1)
 
         # (batch_size, n_paths)
         similarities = torch.matmul(path_emb, rel_emb.unsqueeze(-1)).squeeze(-1)
