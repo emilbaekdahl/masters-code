@@ -200,6 +200,7 @@ class Dataset(torch.utils.data.Dataset):
         min_path_length: int = 1,
         max_path_length: int = 1,
         subgraph_sampling: str = None,
+        domain_semantics: bool = False,
     ):
         if isinstance(path, str):
             self.path = pl.Path(path)
@@ -212,6 +213,12 @@ class Dataset(torch.utils.data.Dataset):
         self.min_path_length = min_path_length
         self.max_path_length = max_path_length
         self.subgraph_sampling = subgraph_sampling
+        self.domain_semantics = domain_semantics
+
+        if self.domain_semantics:
+            assert "yago" in str(
+                self.path
+            ), f"kg '{self.path}' does not support domain semantics"
 
     @util.cached_property
     def kg(self) -> KG:
@@ -234,6 +241,9 @@ class Dataset(torch.utils.data.Dataset):
 
     @util.cached_property
     def entity_semantics(self) -> pd.DataFrame:
+        if self.domain_semantics:
+            return pd.read_csv(self.path / "sems.csv", index_col=0)
+
         return feature.rel_counts(self.kg.data).astype("float32")
 
     @util.cached_property
@@ -375,6 +385,7 @@ class DataModule(ptl.LightningDataModule):
         num_workers: int = 0,
         prefetch_factor: int = 2,
         shuffle_train: bool = True,
+        domain_semantics: bool = False,
     ):
         self.path = path
         self.neg_rate = neg_rate
@@ -386,6 +397,7 @@ class DataModule(ptl.LightningDataModule):
         self.num_workers = num_workers
         self.prefetch_factor = prefetch_factor
         self.shuffle_train = shuffle_train
+        self.domain_semantics = domain_semantics
 
         super().__init__()
 
@@ -412,6 +424,7 @@ class DataModule(ptl.LightningDataModule):
                 min_path_length=self.min_path_length,
                 max_path_length=self.max_path_length,
                 subgraph_sampling=self.subgraph_sampling,
+                domain_semantics=self.domain_semantics,
             ),
             batch_size=self.batch_size,
             num_workers=self.num_workers,
@@ -427,6 +440,7 @@ class Model(ptl.LightningModule):
         self,
         n_rels: int,
         emb_dim: int,
+        sem_dim: int = None,
         pooling: str = "avg",
         optimiser: str = "sgd",
         no_early_stopping: bool = False,
@@ -445,9 +459,13 @@ class Model(ptl.LightningModule):
         assert pooling in ["avg", "lse", "max"], f"pooling function '{pooling}' unknown"
         assert optimiser in ["sgd", "adam"], f"optimiser '{optimiser}' unknown"
 
+        if sem_dim is None:
+            sem_dim = n_rels
+
         self.save_hyperparameters(
             "n_rels",
             "emb_dim",
+            "sem_dim",
             "pooling",
             "optimiser",
             "no_early_stopping",
@@ -473,7 +491,8 @@ class Model(ptl.LightningModule):
         if not self.hparams.no_semantics:
             self.ent_comp = nn.Parameter(
                 torch.rand(
-                    self.hparams.emb_dim, 2 * self.hparams.n_rels + self.hparams.emb_dim
+                    self.hparams.emb_dim,
+                    2 * self.hparams.sem_dim + self.hparams.emb_dim,
                 )
             )
             nn.init.xavier_uniform_(self.ent_comp.data)
@@ -633,10 +652,12 @@ class Model(ptl.LightningModule):
     ) -> argparse.ArgumentParser:
         group_parser = parent_parser.add_argument_group("Model")
         group_parser.add_argument("--emb_dim", type=int, default=100)
+        group_parser.add_argument("--sem_dim", type=int)
         group_parser.add_argument("--pooling", type=str, default="avg")
         group_parser.add_argument("--optimiser", type=str, default="sgd")
         group_parser.add_argument("--early_stopping", type=str, default="val_loss")
         group_parser.add_argument("--no_early_stopping", action="store_true")
         group_parser.add_argument("--learning_rate", type=float, default=0.0001)
+        group_parser.add_argument("--no_semantics", action="store_true")
 
         return parent_parser

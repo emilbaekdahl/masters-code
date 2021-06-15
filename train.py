@@ -26,7 +26,8 @@ def main(args):
         no_early_stopping=args.no_early_stopping,
         learning_rate=args.learning_rate,
         batch_size=args.batch_size,
-        no_semantics=args.no_semantics
+        no_semantics=args.no_semantics,
+        sem_dim=args.sem_dim,
     )
 
     trainer.fit(model, data_module)
