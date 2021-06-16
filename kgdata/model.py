@@ -156,6 +156,7 @@ class KG:
         max_length: int = 3,
         max_paths: int = None,
         subgraph_sampling: str = None,
+        no_rel_rep: bool = False,
     ) -> tp.List[np.array]:
         seqs = []
 
@@ -179,7 +180,9 @@ class KG:
 
                 seq = [relation for _head, _tail, relation in path]
 
-                if seq not in seqs:
+                if seq not in seqs and (
+                    not no_rel_rep or KG._is_non_repeating_seq(seq)
+                ):
                     seqs.append(seq)
 
                 if max_paths and len(seqs) >= max_paths:
@@ -188,6 +191,14 @@ class KG:
             pass
 
         return [np.array(seq) for seq in seqs]
+
+    @staticmethod
+    def _is_non_repeating_seq(seq: tp.List[int]) -> bool:
+        for index in range(1, len(seq)):
+            if seq[index - 1] == seq[index]:
+                return False
+
+        return True
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -201,6 +212,7 @@ class Dataset(torch.utils.data.Dataset):
         max_path_length: int = 1,
         subgraph_sampling: str = None,
         domain_semantics: bool = False,
+        no_rel_rep: bool = False,
     ):
         if isinstance(path, str):
             self.path = pl.Path(path)
@@ -219,6 +231,8 @@ class Dataset(torch.utils.data.Dataset):
             assert "yago" in str(
                 self.path
             ), f"kg '{self.path}' does not support domain semantics"
+
+        self.no_rel_rep = no_rel_rep
 
     @util.cached_property
     def kg(self) -> KG:
@@ -305,6 +319,7 @@ class Dataset(torch.utils.data.Dataset):
                 max_length=self.max_path_length,
                 max_paths=self.max_paths,
                 subgraph_sampling=self.subgraph_sampling,
+                no_rel_rep=self.no_rel_rep,
             )
         ]
 
@@ -386,6 +401,7 @@ class DataModule(ptl.LightningDataModule):
         prefetch_factor: int = 2,
         shuffle_train: bool = True,
         domain_semantics: bool = False,
+        no_rel_rep: bool = False,
     ):
         self.path = path
         self.neg_rate = neg_rate
@@ -398,6 +414,7 @@ class DataModule(ptl.LightningDataModule):
         self.prefetch_factor = prefetch_factor
         self.shuffle_train = shuffle_train
         self.domain_semantics = domain_semantics
+        self.no_rel_rep = no_rel_rep
 
         super().__init__()
 
@@ -425,6 +442,7 @@ class DataModule(ptl.LightningDataModule):
                 max_path_length=self.max_path_length,
                 subgraph_sampling=self.subgraph_sampling,
                 domain_semantics=self.domain_semantics,
+                no_rel_rep=self.no_rel_rep,
             ),
             batch_size=self.batch_size,
             num_workers=self.num_workers,
