@@ -20,14 +20,28 @@ rng = np.random.default_rng()
 
 
 class KG:
+    path: pl.Path
+
     def __init__(self, path: tp.Union[str, pl.Path]):
-        self.path = path
+        if isinstance(path, str):
+            self.path = pl.Path(path)
+        else:
+            self.path = path
 
     def __len__(self) -> int:
         return len(self.data)
 
     def __iter__(self):
         return self.data.itertuples()
+
+    @util.cached_property
+    def all_org_data(self) -> pd.DataFrame:
+        files = [
+            self.path.parent / file_name
+            for file_name in ["train.csv", "valid.csv", "test.csv"]
+        ]
+
+        return pd.concat(map(pd.read_csv, files))
 
     @util.cached_property
     def org_data(self) -> pd.DataFrame:
@@ -75,7 +89,7 @@ class KG:
     @util.cached_property
     def entities(self) -> pd.Series:
         return pd.Series(
-            pd.concat([self.org_data["head"], self.org_data["tail"]]).unique(),
+            pd.concat([self.all_org_data["head"], self.all_org_data["tail"]]).unique(),
             name="entity",
         )
 
@@ -85,7 +99,7 @@ class KG:
 
     @util.cached_property
     def relations(self) -> pd.Series:
-        return pd.Series(self.org_data["relation"].unique(), name="relation")
+        return pd.Series(self.all_org_data["relation"].unique(), name="relation")
 
     @util.cached_property
     def relation_to_index(self):
@@ -285,7 +299,7 @@ class Dataset(torch.utils.data.Dataset):
 
         pos_sample = self.pos_data.iloc[pos_idx]
 
-        if pos_idx == idx:
+        if label == 1:
             sample = pos_sample
         else:
             sample = self._gen_neg_sample(*pos_sample)
