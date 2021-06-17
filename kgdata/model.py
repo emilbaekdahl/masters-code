@@ -566,10 +566,14 @@ class Model(ptl.LightningModule):
                 dim=2,
             )
             # (batch_size, n_paths, emb_dim)
-            path_emb = torch.matmul(self.ent_comp, path_emb.unsqueeze(-1)).squeeze(-1)
+            path_emb = torch.sigmoid(
+                torch.matmul(self.ent_comp, path_emb.unsqueeze(-1)).squeeze(-1)
+            )
 
             rel_emb = torch.cat([head_sem, rel_emb, tail_sem], dim=1)
-            rel_emb = torch.matmul(self.ent_comp, rel_emb.unsqueeze(-1)).squeeze(-1)
+            rel_emb = torch.sigmoid(
+                torch.matmul(self.ent_comp, rel_emb.unsqueeze(-1)).squeeze(-1)
+            )
 
         # (batch_size, n_paths)
         similarities = torch.matmul(path_emb, rel_emb.unsqueeze(-1)).squeeze(-1)
